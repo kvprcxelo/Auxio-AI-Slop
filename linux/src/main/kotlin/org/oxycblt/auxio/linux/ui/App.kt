@@ -24,21 +24,25 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -52,11 +56,24 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import java.nio.file.Path
 import kotlinx.coroutines.delay
+import org.oxycblt.auxio.linux.music.Album
+import org.oxycblt.auxio.linux.music.Artist
+import org.oxycblt.auxio.linux.music.MusicLibrary
 import org.oxycblt.auxio.linux.music.Track
 import org.oxycblt.auxio.linux.playback.MpvPlayer
+import org.oxycblt.auxio.linux.playback.PlayQueue
+
+private enum class Section(val label: String) {
+    Songs("Songs"),
+    Albums("Albums"),
+    Artists("Artists"),
+}
 
 @Composable
-fun AuxioApp(player: MpvPlayer, tracks: List<Track>, roots: List<Path>) {
+fun AuxioApp(player: MpvPlayer, library: MusicLibrary, roots: List<Path>) {
+    var section by remember { mutableStateOf(Section.Songs) }
+    var openAlbum by remember { mutableStateOf<Album?>(null) }
+    var openArtist by remember { mutableStateOf<Artist?>(null) }
     var current by remember { mutableStateOf<Track?>(null) }
     var position by remember { mutableStateOf(0.0) }
     var duration by remember { mutableStateOf(0.0) }
@@ -65,24 +82,62 @@ fun AuxioApp(player: MpvPlayer, tracks: List<Track>, roots: List<Path>) {
     var query by remember { mutableStateOf("") }
     var status by remember { mutableStateOf<String?>(null) }
 
-    val visible =
-        remember(tracks, query) {
-            if (query.isBlank()) tracks
-            else
-                tracks.filter {
-                    it.title.contains(query, ignoreCase = true) ||
-                        it.artist?.contains(query, ignoreCase = true) == true
+    val queue = remember { PlayQueue(player) }
+
+    fun play(tracks: List<Track>, index: Int) {
+        status =
+            runCatching { queue.setTracks(tracks, index) }
+                .exceptionOrNull()
+                ?.let {
+                    "Could not play ${tracks.getOrNull(index)?.title ?: "track"}: ${it.message}"
                 }
-        }
+        current = queue.current
+    }
+
+    fun step(forward: Boolean) {
+        status =
+            runCatching { if (forward) queue.next() else queue.previous() }
+                .exceptionOrNull()
+                ?.let { "Could not change track: ${it.message}" }
+        current = queue.current
+    }
 
     LaunchedEffect(Unit) {
         while (true) {
+            if (queue.advanceIfFinished()) current = queue.current
             position = player.timePosition()
             duration = player.duration()
             paused = player.isPaused()
             delay(250)
         }
     }
+
+    val songs =
+        remember(library, query) {
+            if (query.isBlank()) library.songs
+            else
+                library.songs.filter {
+                    it.title.contains(query, ignoreCase = true) ||
+                        it.artist?.contains(query, ignoreCase = true) == true ||
+                        it.album?.contains(query, ignoreCase = true) == true
+                }
+        }
+
+    val albums =
+        remember(library, query) {
+            if (query.isBlank()) library.albums
+            else
+                library.albums.filter {
+                    it.name.contains(query, ignoreCase = true) ||
+                        it.artist?.contains(query, ignoreCase = true) == true
+                }
+        }
+
+    val artists =
+        remember(library, query) {
+            if (query.isBlank()) library.artists
+            else library.artists.filter { it.name.contains(query, ignoreCase = true) }
+        }
 
     MaterialTheme(colorScheme = darkColorScheme()) {
         Surface(modifier = Modifier.fillMaxSize()) {
@@ -102,7 +157,9 @@ fun AuxioApp(player: MpvPlayer, tracks: List<Track>, roots: List<Path>) {
                     )
                     Spacer(modifier = Modifier.weight(1f))
                     Text(
-                        text = "${visible.size} of ${tracks.size} songs",
+                        text =
+                            "${library.songs.size} songs · ${library.albums.size} albums · " +
+                                "${library.artists.size} artists",
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -117,7 +174,7 @@ fun AuxioApp(player: MpvPlayer, tracks: List<Track>, roots: List<Path>) {
                     )
                 }
 
-                if (tracks.isEmpty()) {
+                if (library.songs.isEmpty()) {
                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         Text(
                             text = "No music found in ${roots.joinToString()}",
@@ -126,19 +183,47 @@ fun AuxioApp(player: MpvPlayer, tracks: List<Track>, roots: List<Path>) {
                         )
                     }
                 } else {
-                    LazyColumn(modifier = Modifier.weight(1f).fillMaxWidth()) {
-                        items(visible) { track ->
-                            TrackRow(
-                                track = track,
-                                playing = current?.path == track.path,
-                                onClick = {
-                                    current = track
-                                    status =
-                                        runCatching { player.load(track.path) }
-                                            .exceptionOrNull()
-                                            ?.let { "Could not play ${track.title}: ${it.message}" }
-                                },
+                    val album = openAlbum
+                    val artist = openArtist
+                    when {
+                        album != null ->
+                            AlbumDetail(
+                                album = album,
+                                current = current,
+                                onBack = { openAlbum = null },
+                                onPlay = { index -> play(album.tracks, index) },
                             )
+                        artist != null ->
+                            ArtistDetail(
+                                artist = artist,
+                                current = current,
+                                onBack = { openArtist = null },
+                                onOpenAlbum = { openAlbum = it },
+                                onPlay = { index -> play(artist.tracks, index) },
+                            )
+                        else -> {
+                            PrimaryTabRow(selectedTabIndex = section.ordinal) {
+                                Section.entries.forEach { entry ->
+                                    Tab(
+                                        selected = section == entry,
+                                        onClick = { section = entry },
+                                        text = { Text(entry.label) },
+                                    )
+                                }
+                            }
+
+                            when (section) {
+                                Section.Songs ->
+                                    SongList(
+                                        tracks = songs,
+                                        current = current,
+                                        onPlay = { index -> play(songs, index) },
+                                    )
+                                Section.Albums ->
+                                    AlbumList(albums = albums, onOpen = { openAlbum = it })
+                                Section.Artists ->
+                                    ArtistList(artists = artists, onOpen = { openArtist = it })
+                            }
                         }
                     }
                 }
@@ -149,12 +234,14 @@ fun AuxioApp(player: MpvPlayer, tracks: List<Track>, roots: List<Path>) {
                     position = position,
                     duration = duration,
                     volume = volume,
+                    onPrevious = { step(forward = false) },
                     onTogglePause = {
                         current?.let {
                             player.togglePause()
                             paused = player.isPaused()
                         }
                     },
+                    onNext = { step(forward = true) },
                     onSeek = { fraction ->
                         if (duration > 0.0) player.seekTo(duration * fraction)
                     },
@@ -169,7 +256,165 @@ fun AuxioApp(player: MpvPlayer, tracks: List<Track>, roots: List<Path>) {
 }
 
 @Composable
-private fun TrackRow(track: Track, playing: Boolean, onClick: () -> Unit) {
+private fun SongList(tracks: List<Track>, current: Track?, onPlay: (Int) -> Unit) {
+    LazyColumn(modifier = Modifier.fillMaxSize()) {
+        itemsIndexed(tracks) { index, track ->
+            TrackRow(
+                track = track,
+                subtitle = track.artist ?: track.album.orEmpty(),
+                playing = current?.id == track.id,
+                onClick = { onPlay(index) },
+            )
+        }
+    }
+}
+
+@Composable
+private fun AlbumList(albums: List<Album>, onOpen: (Album) -> Unit) {
+    LazyColumn(modifier = Modifier.fillMaxSize()) {
+        items(albums) { album ->
+            EntryRow(
+                title = album.name,
+                subtitle =
+                    buildString {
+                        album.artist?.let { append(it) }
+                        append(" · ")
+                        append(
+                            "${album.tracks.size} ${if (album.tracks.size == 1) "song" else "songs"}"
+                        )
+                        album.year?.let { append(" · $it") }
+                    },
+                onClick = { onOpen(album) },
+            )
+        }
+    }
+}
+
+@Composable
+private fun ArtistList(artists: List<Artist>, onOpen: (Artist) -> Unit) {
+    LazyColumn(modifier = Modifier.fillMaxSize()) {
+        items(artists) { artist ->
+            EntryRow(
+                title = artist.name,
+                subtitle =
+                    "${artist.albums.size} ${if (artist.albums.size == 1) "album" else "albums"} · " +
+                        "${artist.tracks.size} songs",
+                onClick = { onOpen(artist) },
+            )
+        }
+    }
+}
+
+@Composable
+private fun AlbumDetail(
+    album: Album,
+    current: Track?,
+    onBack: () -> Unit,
+    onPlay: (Int) -> Unit,
+) {
+    Column(modifier = Modifier.fillMaxSize()) {
+        DetailHeader(
+            title = album.name,
+            subtitle =
+                buildString {
+                    album.artist?.let { append(it) }
+                    album.year?.let { append(" · $it") }
+                    append(" · ${formatTime(album.durationSeconds)}")
+                },
+            onBack = onBack,
+        )
+
+        LazyColumn(modifier = Modifier.fillMaxSize()) {
+            itemsIndexed(album.tracks) { index, track ->
+                TrackRow(
+                    track = track,
+                    subtitle = track.title,
+                    playing = current?.id == track.id,
+                    onClick = { onPlay(index) },
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ArtistDetail(
+    artist: Artist,
+    current: Track?,
+    onBack: () -> Unit,
+    onOpenAlbum: (Album) -> Unit,
+    onPlay: (Int) -> Unit,
+) {
+    Column(modifier = Modifier.fillMaxSize()) {
+        DetailHeader(
+            title = artist.name,
+            subtitle =
+                "${artist.albums.size} ${if (artist.albums.size == 1) "album" else "albums"} · " +
+                    "${artist.tracks.size} songs",
+            onBack = onBack,
+        )
+
+        LazyColumn(modifier = Modifier.fillMaxSize()) {
+            items(artist.albums) { album ->
+                EntryRow(
+                    title = album.name,
+                    subtitle = "${album.tracks.size} songs",
+                    onClick = { onOpenAlbum(album) },
+                )
+            }
+            itemsIndexed(artist.tracks) { index, track ->
+                TrackRow(
+                    track = track,
+                    subtitle = track.album.orEmpty(),
+                    playing = current?.id == track.id,
+                    onClick = { onPlay(index) },
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun DetailHeader(title: String, subtitle: String, onBack: () -> Unit) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        TextButton(onClick = onBack) { Text("\u2039 Back") }
+        Spacer(modifier = Modifier.width(8.dp))
+        Column {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleLarge,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                text = subtitle,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+}
+
+@Composable
+private fun EntryRow(title: String, subtitle: String, onClick: () -> Unit) {
+    Row(
+        modifier =
+            Modifier.fillMaxWidth()
+                .clickable(onClick = onClick)
+                .padding(horizontal = 16.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        RowContent(title = title, subtitle = subtitle)
+    }
+}
+
+@Composable
+private fun TrackRow(track: Track, subtitle: String, playing: Boolean, onClick: () -> Unit) {
     Row(
         modifier =
             Modifier.fillMaxWidth()
@@ -181,15 +426,22 @@ private fun TrackRow(track: Track, playing: Boolean, onClick: () -> Unit) {
                 .padding(horizontal = 16.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Column(modifier = Modifier.weight(1f)) {
+        RowContent(title = track.title, subtitle = subtitle)
+    }
+}
+
+@Composable
+private fun RowScope.RowContent(title: String, subtitle: String) {
+    Column(modifier = Modifier.weight(1f)) {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.bodyLarge,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        if (subtitle.isNotEmpty()) {
             Text(
-                text = track.title,
-                style = MaterialTheme.typography.bodyLarge,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Text(
-                text = track.artist ?: track.path.parent?.fileName?.toString().orEmpty(),
+                text = subtitle,
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
@@ -206,7 +458,9 @@ private fun TransportBar(
     position: Double,
     duration: Double,
     volume: Double,
+    onPrevious: () -> Unit,
     onTogglePause: () -> Unit,
+    onNext: () -> Unit,
     onSeek: (Double) -> Unit,
     onVolume: (Double) -> Unit,
 ) {
@@ -224,14 +478,20 @@ private fun TransportBar(
                 style = MaterialTheme.typography.bodyMedium,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.width(220.dp),
+                modifier = Modifier.width(200.dp),
             )
 
+            IconButton(onClick = onPrevious, enabled = current != null) {
+                Text(text = "\u23EE", style = MaterialTheme.typography.titleMedium)
+            }
             IconButton(onClick = onTogglePause, enabled = current != null) {
                 Text(
                     text = if (paused) "\u25B6" else "\u23F8",
                     style = MaterialTheme.typography.titleLarge,
                 )
+            }
+            IconButton(onClick = onNext, enabled = current != null) {
+                Text(text = "\u23ED", style = MaterialTheme.typography.titleMedium)
             }
 
             Spacer(modifier = Modifier.width(8.dp))

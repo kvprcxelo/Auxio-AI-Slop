@@ -6,10 +6,11 @@ other's toolchain: the Android build needs the SDK and NDK, this one needs a JDK
 
 ## Status
 
-Early. It scans a folder, reads tags through taglib, and plays files, with a minimal Compose
-window on top. The list shows title with artist, falling back to the file name when a file
-carries no tags. Album artist, disc numbers and embedded covers are not read yet, and there are
-no playlists, play queue, MPRIS, search ranking, ReplayGain or settings.
+It scans folders, reads tags through taglib, and browses the result as **songs, albums and
+artists**, each with a detail view. Playing a song fills a queue from the list you started it in,
+with previous/next and automatic advance when a track ends. Titles fall back to file names when a
+file carries no tags. Album artist, disc numbers and embedded covers are not read yet, and there
+are no playlists, MPRIS, search ranking, ReplayGain or settings.
 
 ## Requirements
 

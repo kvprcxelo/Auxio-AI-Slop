@@ -71,7 +71,7 @@ class NativeTagsTest {
         try {
             dir.resolve("09 - Filename Only.flac").also { Files.createFile(it) }
 
-            val track = LibraryScanner.scan(listOf(dir)).single()
+            val track = LibraryScanner.scan(listOf(dir)).songs.single()
 
             assertEquals("09 - Filename Only", track.title)
             assertNull(track.artist)
@@ -90,7 +90,7 @@ class NativeTagsTest {
         try {
             resource("tagged.flac").copyTo(dir.resolve("01 - ignored name.flac"))
 
-            val track = LibraryScanner.scan(listOf(dir)).single()
+            val track = LibraryScanner.scan(listOf(dir)).songs.single()
 
             assertEquals("Tagged Track", track.title)
             assertEquals("Test Artist", track.artist)

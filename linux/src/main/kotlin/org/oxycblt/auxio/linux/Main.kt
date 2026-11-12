@@ -37,7 +37,7 @@ import org.oxycblt.auxio.linux.ui.AuxioApp
 fun main(args: Array<String>) {
     val roots = args.map { Path(it) }.filter { it.exists() }.ifEmpty { listOf(defaultMusicDir()) }
 
-    val tracks = LibraryScanner.scan(roots)
+    val library = LibraryScanner.scan(roots)
 
     val player =
         try {
@@ -56,7 +56,7 @@ fun main(args: Array<String>) {
             title = "Auxio",
             state = rememberWindowState(width = 1100.dp, height = 720.dp),
         ) {
-            AuxioApp(player = player, tracks = tracks, roots = roots)
+            AuxioApp(player = player, library = library, roots = roots)
         }
     }
 }

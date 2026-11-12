@@ -25,17 +25,8 @@ import kotlin.io.path.isRegularFile
 import kotlin.io.path.nameWithoutExtension
 import kotlin.streams.asSequence
 
-/** A playable file, with tags where taglib could read them. */
-data class Track(
-    val path: Path,
-    val title: String,
-    val artist: String? = null,
-    val album: String? = null,
-    val durationSeconds: Double? = null,
-)
-
 /**
- * Walks music folders and collects playable files.
+ * Walks music folders and builds the library.
  *
  * This replaces MediaStore: on Linux the library is just the filesystem, so scanning is a walk plus
  * an extension filter, with taglib supplying the metadata.
@@ -61,19 +52,24 @@ object LibraryScanner {
             "dff",
         )
 
-    fun scan(roots: List<Path>): List<Track> =
-        roots
-            .filter { Files.isDirectory(it) }
-            .flatMap { root ->
-                Files.walk(root).use { stream ->
-                    stream
-                        .asSequence()
-                        .filter { it.isRegularFile() && it.extension.lowercase() in EXTENSIONS }
-                        .map { track(it) }
-                        .toList()
-                }
-            }
-            .sortedBy { it.title.lowercase() }
+    fun scan(roots: List<Path>): MusicLibrary {
+        val songs =
+            roots
+                .filter { Files.isDirectory(it) }
+                .flatMap { walk(it) }
+                .sortedBy { it.title.lowercase() }
+
+        return Library.build(songs)
+    }
+
+    private fun walk(root: Path): List<Track> =
+        Files.walk(root).use { stream ->
+            stream
+                .asSequence()
+                .filter { it.isRegularFile() && it.extension.lowercase() in EXTENSIONS }
+                .map { track(it) }
+                .toList()
+        }
 
     private fun track(path: Path): Track {
         val tags = NativeTags.read(path)
@@ -82,6 +78,8 @@ object LibraryScanner {
             title = tags?.title ?: path.nameWithoutExtension,
             artist = tags?.artist,
             album = tags?.album,
+            trackNumber = tags?.trackNumber,
+            year = tags?.year,
             durationSeconds = tags?.durationSeconds?.toDouble(),
         )
     }

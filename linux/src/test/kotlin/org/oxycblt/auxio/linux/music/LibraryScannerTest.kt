@@ -44,11 +44,11 @@ class LibraryScannerTest {
         root.resolve("notes.txt").createFile()
         root.resolve("cover.jpg").createFile()
 
-        val tracks = LibraryScanner.scan(listOf(root))
+        val songs = LibraryScanner.scan(listOf(root)).songs
 
         assertEquals(
             listOf("01 - First", "02 - Second"),
-            tracks.map { it.title },
+            songs.map { it.title },
         )
     }
 
@@ -56,8 +56,8 @@ class LibraryScannerTest {
     fun `ignores paths that are not directories`() {
         val file = root.resolve("single.flac").createFile()
 
-        assertEquals(emptyList(), LibraryScanner.scan(listOf(file)))
-        assertEquals(emptyList(), LibraryScanner.scan(listOf(root.resolve("missing"))))
+        assertEquals(emptyList(), LibraryScanner.scan(listOf(file)).songs)
+        assertEquals(emptyList(), LibraryScanner.scan(listOf(root.resolve("missing"))).songs)
     }
 
     @Test
@@ -65,7 +65,7 @@ class LibraryScannerTest {
         val dir = root.resolve("music").createDirectories()
         val file = dir.resolve("Song.opus").createFile()
 
-        val track = LibraryScanner.scan(listOf(dir)).single()
+        val track = LibraryScanner.scan(listOf(dir)).songs.single()
 
         assertEquals("Song", track.title)
         assertEquals("Song.opus", track.path.name)
