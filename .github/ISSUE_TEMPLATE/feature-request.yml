@@ -1,14 +1,12 @@
 name: Feature Request
 description: Propose new functionality
 labels: ["enhancement"]
-assignees:
-  - OxygenCobalt
 body:
   - type: markdown
     attributes:
       value: |
-        Welcome to Auxio's feature request form.
-        Please note that there have been several major features that Auxio has already **rejected**, due to either technical issues or due to it not being in scope for the app. To ensure that you are not requesting a feature that was already rejected, please read the [Why Are These Features Missing?](https://github.com/OxygenCobalt/Auxio/wiki/Why-Are-These-Features-Missing%3F) page.
+        Welcome to the Auxio-AI-Slop feature request form.
+        Please note that not every request can be implemented; features that fit the scope of the project are more likely to be accepted.
   - type: textarea
     id: desc
     attributes:
@@ -36,7 +34,7 @@ body:
     attributes:
       label: Benefit
       description: >
-        How will this addition benefit **everyone's** usage of Auxio? A convincing argument increases the likelihood
+        How will this addition benefit **everyone's** usage of the app? A convincing argument increases the likelihood
         that this feature is accepted.
       placeholder: This feature allows...
     validations:
@@ -49,9 +47,7 @@ body:
       options:
         - label: I have checked this feature request for duplicates.
           required: true
-        - label: I have checked that this feature is not implemented in the [lastest version](https://github.com/OxygenCobalt/Auxio/releases).
+        - label: I have checked that this feature is not implemented in the [latest build](https://github.com/kvprcxelo/Auxio-AI-Slop/releases).
           required: true
-        - label: I have checked the [Why Are These Features Missing?](https://github.com/OxygenCobalt/Auxio/wiki/Why-Are-These-Features-Missing%3F) page.
-          required: true
-        - label: I agree to the [Contribution Guidelines](https://github.com/OxygenCobalt/Auxio/blob/dev/.github/CONTRIBUTING.md).
+        - label: I agree to the [Contribution Guidelines](https://github.com/kvprcxelo/Auxio-AI-Slop/blob/dev/.github/CONTRIBUTING.md).
           required: true          

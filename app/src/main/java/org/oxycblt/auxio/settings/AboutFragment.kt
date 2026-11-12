@@ -122,10 +122,11 @@ class AboutFragment : ViewBindingFragment<FragmentAboutBinding>() {
     }
 
     private companion object {
-        const val LINK_SOURCE = "https://github.com/OxygenCobalt/Auxio"
-        const val LINK_WIKI = "$LINK_SOURCE/wiki"
+        const val LINK_SOURCE = "https://github.com/kvprcxelo/Auxio-AI-Slop"
+        const val LINK_UPSTREAM = "https://github.com/OxygenCobalt/Auxio"
+        const val LINK_WIKI = "$LINK_UPSTREAM/wiki"
         const val LINK_LICENSES = "$LINK_WIKI/Licenses"
-        const val LINK_NEW_ISSUE = "$LINK_SOURCE/issues/new"
+        const val LINK_NEW_ISSUE = "https://github.com/kvprcxelo/Auxio-AI-Slop/issues/new"
         const val LINK_PROFILE = "https://github.com/OxygenCobalt"
         const val LINK_BKKELLYH = "https://github.com/bkkellyh"
         const val LINK_GRUNTSTUMPER = "https://github.com/gruntstumper"
