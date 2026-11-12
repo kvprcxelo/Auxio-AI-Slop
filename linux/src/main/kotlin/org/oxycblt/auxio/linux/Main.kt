@@ -56,7 +56,12 @@ fun main(args: Array<String>) {
             title = "Auxio",
             state = rememberWindowState(width = 1100.dp, height = 720.dp),
         ) {
-            AuxioApp(player = player, library = library, roots = roots)
+            AuxioApp(
+                player = player,
+                library = library,
+                roots = roots,
+                initialSeparators = Settings.separators(),
+            )
         }
     }
 }

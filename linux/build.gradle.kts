@@ -43,7 +43,7 @@ compose.desktop {
         nativeDistributions {
             targetFormats(TargetFormat.Deb, TargetFormat.Rpm)
             packageName = "auxio"
-            packageVersion = "0.2.0"
+            packageVersion = "0.3.0"
             description = "A simple, rational music player"
             vendor = "Auxio-AI-Slop"
         }
@@ -76,6 +76,7 @@ val buildTagsNative by tasks.registering(Exec::class) {
     description = "Builds the taglib JNI shim for Linux."
     dependsOn(configureTagsNative)
     val outputDir = layout.buildDirectory.get().dir("native").asFile
+    inputs.dir(file("src/main/cpp"))
     outputs.file(tagsLibrary)
     commandLine("cmake", "--build", outputDir.absolutePath)
 }

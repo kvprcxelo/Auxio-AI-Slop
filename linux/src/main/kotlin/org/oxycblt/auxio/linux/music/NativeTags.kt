@@ -65,6 +65,12 @@ internal object NativeTags {
         )
     }
 
+    /** Encoded embedded artwork (PNG/JPEG bytes), or null when the file has none. */
+    fun artwork(path: Path): ByteArray? {
+        if (!loaded) return null
+        return runCatching { readArtworkNative(path.toAbsolutePath().toString()) }.getOrNull()
+    }
+
     private fun load(): Boolean {
         System.getProperty(LIBRARY_PROPERTY)?.let { path ->
             if (runCatching { System.load(path) }.isSuccess) return true
@@ -80,4 +86,6 @@ internal object NativeTags {
     }
 
     @JvmStatic private external fun readNative(path: String): Array<String?>?
+
+    @JvmStatic private external fun readArtworkNative(path: String): ByteArray?
 }

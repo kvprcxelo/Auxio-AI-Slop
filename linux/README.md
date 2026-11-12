@@ -8,9 +8,11 @@ other's toolchain: the Android build needs the SDK and NDK, this one needs a JDK
 
 It scans folders, reads tags through taglib, and browses the result as **songs, albums and
 artists**, each with a detail view. Playing a song fills a queue from the list you started it in,
-with previous/next and automatic advance when a track ends. Titles fall back to file names when a
-file carries no tags. Album artist, disc numbers and embedded covers are not read yet, and there
-are no playlists, MPRIS, search ranking, ReplayGain or settings.
+with previous/next and automatic advance when a track ends. Embedded cover art is shown for the
+current album, artist and track. A settings page offers a library rescan and the metadata
+separators used to split multi-artist tags. Titles fall back to file names when a file carries no
+tags. Album artist and disc numbers are not read yet, and there are no playlists, MPRIS, search
+ranking or ReplayGain.
 
 ## Requirements
 
@@ -27,6 +29,13 @@ Missing it is reported as a normal error rather than a crash:
 Could not start playback: libmpv was not found. Install it with your package manager
 (for example `mpv-libs` or `libmpv2`).
 ```
+
+## Settings
+
+Settings live in `$XDG_CONFIG_HOME/auxio/settings.properties` (defaulting to
+`~/.config/auxio/settings.properties`). Today that is one key, `metadata.separators`: any artist
+tag containing one of those characters is split into separate artists, so `A; B` lists under both.
+Albums keep their raw tag, so compilations stay one album. Changes apply immediately.
 
 ## Logs
 

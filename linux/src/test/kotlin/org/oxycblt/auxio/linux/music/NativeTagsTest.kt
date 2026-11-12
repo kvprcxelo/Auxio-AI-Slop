@@ -47,6 +47,24 @@ class NativeTagsTest {
     }
 
     @Test
+    fun `reads embedded artwork`() {
+        assumeTrue(NativeTags.isAvailable, "taglib shim is not built")
+
+        val artwork = assertNotNull(NativeTags.artwork(resource("artwork.flac")))
+
+        // The fixture has a PNG attached, so the bytes should carry the PNG signature.
+        assertEquals(0x89.toByte(), artwork[0])
+        assertEquals("PNG".toByteArray().toList(), artwork.slice(1..3))
+    }
+
+    @Test
+    fun `reports no artwork when a file has none`() {
+        assumeTrue(NativeTags.isAvailable, "taglib shim is not built")
+
+        assertNull(NativeTags.artwork(resource("tagged.flac")))
+    }
+
+    @Test
     fun `leaves fields empty for a file with no tags`() {
         assumeTrue(NativeTags.isAvailable, "taglib shim is not built")
 

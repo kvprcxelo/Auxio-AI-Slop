@@ -102,6 +102,43 @@ class LibraryTest {
     }
 
     @Test
+    fun `splits artists on the configured separators`() {
+        val library =
+            Library.build(
+                listOf(
+                    track("a.flac", "One", "Alpha; Beta", "Split Album"),
+                    track("b.flac", "Two", "Gamma / Delta", "Split Album"),
+                ),
+                separators = setOf(';', '/'),
+            )
+
+        assertEquals(
+            listOf("Alpha", "Beta", "Delta", "Gamma"),
+            library.artists.map { it.name },
+        )
+        // Both split names point back at the album they appear on.
+        assertEquals("Split Album", library.artists.first().albums.single().name)
+    }
+
+    @Test
+    fun `keeps artist tags intact when no separators are configured`() {
+        val library = Library.build(listOf(track("a.flac", "One", "Alpha; Beta", "Album")))
+
+        assertEquals(listOf("Alpha; Beta"), library.artists.map { it.name })
+    }
+
+    @Test
+    fun `does not split on characters that are not configured`() {
+        val library =
+            Library.build(
+                listOf(track("a.flac", "One", "Simon & Garfunkel", "Album")),
+                separators = setOf(';'),
+            )
+
+        assertEquals(listOf("Simon & Garfunkel"), library.artists.map { it.name })
+    }
+
+    @Test
     fun `takes the earliest year of an album and sums its duration`() {
         val library =
             Library.build(

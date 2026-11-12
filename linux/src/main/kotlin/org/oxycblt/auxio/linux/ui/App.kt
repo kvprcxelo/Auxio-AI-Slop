@@ -18,6 +18,7 @@
  
 package org.oxycblt.auxio.linux.ui
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -29,11 +30,14 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Button
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -49,16 +53,31 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.toComposeImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import java.io.ByteArrayInputStream
 import java.nio.file.Path
+import javax.imageio.ImageIO
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import org.oxycblt.auxio.linux.Settings
 import org.oxycblt.auxio.linux.music.Album
 import org.oxycblt.auxio.linux.music.Artist
+import org.oxycblt.auxio.linux.music.Library
+import org.oxycblt.auxio.linux.music.LibraryScanner
 import org.oxycblt.auxio.linux.music.MusicLibrary
+import org.oxycblt.auxio.linux.music.NativeTags
 import org.oxycblt.auxio.linux.music.Track
 import org.oxycblt.auxio.linux.playback.MpvPlayer
 import org.oxycblt.auxio.linux.playback.PlayQueue
@@ -70,10 +89,19 @@ private enum class Section(val label: String) {
 }
 
 @Composable
-fun AuxioApp(player: MpvPlayer, library: MusicLibrary, roots: List<Path>) {
+fun AuxioApp(
+    player: MpvPlayer,
+    library: MusicLibrary,
+    roots: List<Path>,
+    initialSeparators: String = Settings.DEFAULT_SEPARATORS,
+) {
+    var songs by remember { mutableStateOf(library.songs) }
+    var separators by remember { mutableStateOf(initialSeparators) }
     var section by remember { mutableStateOf(Section.Songs) }
     var openAlbum by remember { mutableStateOf<Album?>(null) }
     var openArtist by remember { mutableStateOf<Artist?>(null) }
+    var showSettings by remember { mutableStateOf(false) }
+    var scanning by remember { mutableStateOf(false) }
     var current by remember { mutableStateOf<Track?>(null) }
     var position by remember { mutableStateOf(0.0) }
     var duration by remember { mutableStateOf(0.0) }
@@ -82,7 +110,10 @@ fun AuxioApp(player: MpvPlayer, library: MusicLibrary, roots: List<Path>) {
     var query by remember { mutableStateOf("") }
     var status by remember { mutableStateOf<String?>(null) }
 
+    val separatorChars = remember(separators) { separators.toSet() }
+    val currentLibrary = remember(songs, separatorChars) { Library.build(songs, separatorChars) }
     val queue = remember { PlayQueue(player) }
+    val scope = rememberCoroutineScope()
 
     fun play(tracks: List<Track>, index: Int) {
         status =
@@ -102,6 +133,24 @@ fun AuxioApp(player: MpvPlayer, library: MusicLibrary, roots: List<Path>) {
         current = queue.current
     }
 
+    fun refresh() {
+        if (scanning) return
+
+        scanning = true
+        status = "Scanning ${roots.joinToString()}…"
+        scope.launch {
+            val result =
+                withContext(Dispatchers.IO) { runCatching { LibraryScanner.scan(roots).songs } }
+            result
+                .onSuccess { found ->
+                    songs = found
+                    status = "Found ${found.size} songs"
+                }
+                .onFailure { status = "Scan failed: ${it.message}" }
+            scanning = false
+        }
+    }
+
     LaunchedEffect(Unit) {
         while (true) {
             if (queue.advanceIfFinished()) current = queue.current
@@ -112,31 +161,31 @@ fun AuxioApp(player: MpvPlayer, library: MusicLibrary, roots: List<Path>) {
         }
     }
 
-    val songs =
-        remember(library, query) {
-            if (query.isBlank()) library.songs
+    val visibleSongs =
+        remember(currentLibrary, query) {
+            if (query.isBlank()) currentLibrary.songs
             else
-                library.songs.filter {
+                currentLibrary.songs.filter {
                     it.title.contains(query, ignoreCase = true) ||
                         it.artist?.contains(query, ignoreCase = true) == true ||
                         it.album?.contains(query, ignoreCase = true) == true
                 }
         }
 
-    val albums =
-        remember(library, query) {
-            if (query.isBlank()) library.albums
+    val visibleAlbums =
+        remember(currentLibrary, query) {
+            if (query.isBlank()) currentLibrary.albums
             else
-                library.albums.filter {
+                currentLibrary.albums.filter {
                     it.name.contains(query, ignoreCase = true) ||
                         it.artist?.contains(query, ignoreCase = true) == true
                 }
         }
 
-    val artists =
-        remember(library, query) {
-            if (query.isBlank()) library.artists
-            else library.artists.filter { it.name.contains(query, ignoreCase = true) }
+    val visibleArtists =
+        remember(currentLibrary, query) {
+            if (query.isBlank()) currentLibrary.artists
+            else currentLibrary.artists.filter { it.name.contains(query, ignoreCase = true) }
         }
 
     MaterialTheme(colorScheme = darkColorScheme()) {
@@ -158,11 +207,15 @@ fun AuxioApp(player: MpvPlayer, library: MusicLibrary, roots: List<Path>) {
                     Spacer(modifier = Modifier.weight(1f))
                     Text(
                         text =
-                            "${library.songs.size} songs · ${library.albums.size} albums · " +
-                                "${library.artists.size} artists",
+                            "${currentLibrary.songs.size} songs · " +
+                                "${currentLibrary.albums.size} albums · " +
+                                "${currentLibrary.artists.size} artists",
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                    IconButton(onClick = { showSettings = !showSettings }) {
+                        Text(text = "\u2699", style = MaterialTheme.typography.titleLarge)
+                    }
                 }
 
                 status?.let { message ->
@@ -174,55 +227,78 @@ fun AuxioApp(player: MpvPlayer, library: MusicLibrary, roots: List<Path>) {
                     )
                 }
 
-                if (library.songs.isEmpty()) {
-                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Text(
-                            text = "No music found in ${roots.joinToString()}",
-                            style = MaterialTheme.typography.bodyLarge,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                when {
+                    showSettings ->
+                        SettingsPage(
+                            separators = separators,
+                            scanning = scanning,
+                            songCount = songs.size,
+                            onSeparators = {
+                                separators = it
+                                Settings.separators(it)
+                            },
+                            onRefresh = ::refresh,
+                            onBack = { showSettings = false },
                         )
-                    }
-                } else {
-                    val album = openAlbum
-                    val artist = openArtist
-                    when {
-                        album != null ->
-                            AlbumDetail(
-                                album = album,
-                                current = current,
-                                onBack = { openAlbum = null },
-                                onPlay = { index -> play(album.tracks, index) },
+                    currentLibrary.songs.isEmpty() ->
+                        Box(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(
+                                text = "No music found in ${roots.joinToString()}",
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
-                        artist != null ->
-                            ArtistDetail(
-                                artist = artist,
-                                current = current,
-                                onBack = { openArtist = null },
-                                onOpenAlbum = { openAlbum = it },
-                                onPlay = { index -> play(artist.tracks, index) },
-                            )
-                        else -> {
-                            PrimaryTabRow(selectedTabIndex = section.ordinal) {
-                                Section.entries.forEach { entry ->
-                                    Tab(
-                                        selected = section == entry,
-                                        onClick = { section = entry },
-                                        text = { Text(entry.label) },
-                                    )
+                        }
+                    else -> {
+                        val album = openAlbum
+                        val artist = openArtist
+                        when {
+                            album != null ->
+                                AlbumDetail(
+                                    album = album,
+                                    current = current,
+                                    onBack = { openAlbum = null },
+                                    onPlay = { index -> play(album.tracks, index) },
+                                )
+                            artist != null ->
+                                ArtistDetail(
+                                    artist = artist,
+                                    current = current,
+                                    onBack = { openArtist = null },
+                                    onOpenAlbum = { openAlbum = it },
+                                    onPlay = { index -> play(artist.tracks, index) },
+                                )
+                            else -> {
+                                PrimaryTabRow(selectedTabIndex = section.ordinal) {
+                                    Section.entries.forEach { entry ->
+                                        Tab(
+                                            selected = section == entry,
+                                            onClick = { section = entry },
+                                            text = { Text(entry.label) },
+                                        )
+                                    }
                                 }
-                            }
 
-                            when (section) {
-                                Section.Songs ->
-                                    SongList(
-                                        tracks = songs,
-                                        current = current,
-                                        onPlay = { index -> play(songs, index) },
-                                    )
-                                Section.Albums ->
-                                    AlbumList(albums = albums, onOpen = { openAlbum = it })
-                                Section.Artists ->
-                                    ArtistList(artists = artists, onOpen = { openArtist = it })
+                                when (section) {
+                                    Section.Songs ->
+                                        SongList(
+                                            tracks = visibleSongs,
+                                            current = current,
+                                            onPlay = { index -> play(visibleSongs, index) },
+                                        )
+                                    Section.Albums ->
+                                        AlbumList(
+                                            albums = visibleAlbums,
+                                            onOpen = { openAlbum = it },
+                                        )
+                                    Section.Artists ->
+                                        ArtistList(
+                                            artists = visibleArtists,
+                                            onOpen = { openArtist = it },
+                                        )
+                                }
                             }
                         }
                     }
@@ -256,6 +332,65 @@ fun AuxioApp(player: MpvPlayer, library: MusicLibrary, roots: List<Path>) {
 }
 
 @Composable
+private fun SettingsPage(
+    separators: String,
+    scanning: Boolean,
+    songCount: Int,
+    onSeparators: (String) -> Unit,
+    onRefresh: () -> Unit,
+    onBack: () -> Unit,
+) {
+    Column(modifier = Modifier.fillMaxSize()) {
+        DetailHeader(title = "Settings", subtitle = "$songCount songs", onBack = onBack)
+
+        Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+            Text(text = "Library", style = MaterialTheme.typography.titleMedium)
+            Spacer(modifier = Modifier.size(8.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Button(onClick = onRefresh, enabled = !scanning) {
+                    Text(if (scanning) "Scanning…" else "Refresh library")
+                }
+                Spacer(modifier = Modifier.width(12.dp))
+                Text(
+                    text = "Rescan your music folders for new or removed files.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+
+            Spacer(modifier = Modifier.size(16.dp))
+            HorizontalDivider()
+            Spacer(modifier = Modifier.size(16.dp))
+
+            Text(text = "Metadata", style = MaterialTheme.typography.titleMedium)
+            Spacer(modifier = Modifier.size(8.dp))
+            Text(
+                text = "Artist separators",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(modifier = Modifier.size(8.dp))
+            OutlinedTextField(
+                value = separators,
+                onValueChange = { onSeparators(it.filterNot { char -> char.isWhitespace() }) },
+                singleLine = true,
+                label = { Text("Characters, for example ; / , &") },
+                modifier = Modifier.width(360.dp),
+            )
+            Spacer(modifier = Modifier.size(8.dp))
+            Text(
+                text =
+                    "An artist tag containing any of these characters is split into separate " +
+                        "artists, so \"A; B\" lists under both A and B. Albums stay grouped by " +
+                        "their raw tag. Changes apply immediately and are saved.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+@Composable
 private fun SongList(tracks: List<Track>, current: Track?, onPlay: (Int) -> Unit) {
     LazyColumn(modifier = Modifier.fillMaxSize()) {
         itemsIndexed(tracks) { index, track ->
@@ -280,7 +415,8 @@ private fun AlbumList(albums: List<Album>, onOpen: (Album) -> Unit) {
                         album.artist?.let { append(it) }
                         append(" · ")
                         append(
-                            "${album.tracks.size} ${if (album.tracks.size == 1) "song" else "songs"}"
+                            "${album.tracks.size} " +
+                                if (album.tracks.size == 1) "song" else "songs"
                         )
                         album.year?.let { append(" · $it") }
                     },
@@ -297,8 +433,9 @@ private fun ArtistList(artists: List<Artist>, onOpen: (Artist) -> Unit) {
             EntryRow(
                 title = artist.name,
                 subtitle =
-                    "${artist.albums.size} ${if (artist.albums.size == 1) "album" else "albums"} · " +
-                        "${artist.tracks.size} songs",
+                    "${artist.albums.size} " +
+                        (if (artist.albums.size == 1) "album" else "albums") +
+                        " · ${artist.tracks.size} songs",
                 onClick = { onOpen(artist) },
             )
         }
@@ -312,6 +449,8 @@ private fun AlbumDetail(
     onBack: () -> Unit,
     onPlay: (Int) -> Unit,
 ) {
+    val cover = rememberArtwork(album.tracks)
+
     Column(modifier = Modifier.fillMaxSize()) {
         DetailHeader(
             title = album.name,
@@ -321,6 +460,7 @@ private fun AlbumDetail(
                     album.year?.let { append(" · $it") }
                     append(" · ${formatTime(album.durationSeconds)}")
                 },
+            cover = cover,
             onBack = onBack,
         )
 
@@ -328,7 +468,7 @@ private fun AlbumDetail(
             itemsIndexed(album.tracks) { index, track ->
                 TrackRow(
                     track = track,
-                    subtitle = track.title,
+                    subtitle = albumTrackSubtitle(track, album),
                     playing = current?.id == track.id,
                     onClick = { onPlay(index) },
                 )
@@ -345,12 +485,16 @@ private fun ArtistDetail(
     onOpenAlbum: (Album) -> Unit,
     onPlay: (Int) -> Unit,
 ) {
+    val cover = rememberArtwork(artist.tracks)
+
     Column(modifier = Modifier.fillMaxSize()) {
         DetailHeader(
             title = artist.name,
             subtitle =
-                "${artist.albums.size} ${if (artist.albums.size == 1) "album" else "albums"} · " +
-                    "${artist.tracks.size} songs",
+                "${artist.albums.size} " +
+                    (if (artist.albums.size == 1) "album" else "albums") +
+                    " · ${artist.tracks.size} songs",
+            cover = cover,
             onBack = onBack,
         )
 
@@ -374,14 +518,38 @@ private fun ArtistDetail(
     }
 }
 
+/**
+ * What an album row says under a title that already names the track: its position, the performing
+ * artist when that differs from the album artist (compilations), and its length.
+ */
+private fun albumTrackSubtitle(track: Track, album: Album): String {
+    val parts = mutableListOf<String>()
+    track.trackNumber?.let { parts += "#$it" }
+    val artist = track.artist
+    if (artist != null && !artist.equals(album.artist, ignoreCase = true)) {
+        parts += artist
+    }
+    track.durationSeconds?.takeIf { it > 0.0 }?.let { parts += formatTime(it) }
+    return parts.joinToString(" · ")
+}
+
 @Composable
-private fun DetailHeader(title: String, subtitle: String, onBack: () -> Unit) {
+private fun DetailHeader(
+    title: String,
+    subtitle: String,
+    onBack: () -> Unit,
+    cover: ImageBitmap? = null,
+) {
     Row(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         TextButton(onClick = onBack) { Text("\u2039 Back") }
-        Spacer(modifier = Modifier.width(8.dp))
+        if (cover != null) {
+            Spacer(modifier = Modifier.width(8.dp))
+            Cover(bitmap = cover, size = 72.dp)
+        }
+        Spacer(modifier = Modifier.width(12.dp))
         Column {
             Text(
                 text = title,
@@ -399,6 +567,48 @@ private fun DetailHeader(title: String, subtitle: String, onBack: () -> Unit) {
         }
     }
 }
+
+@Composable
+private fun Cover(bitmap: ImageBitmap?, size: Dp) {
+    Box(
+        modifier =
+            Modifier.size(size)
+                .clip(RoundedCornerShape(6.dp))
+                .background(MaterialTheme.colorScheme.surfaceVariant),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (bitmap != null) {
+            Image(
+                bitmap = bitmap,
+                contentDescription = null,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop,
+            )
+        } else {
+            Text(text = "\u266A", style = MaterialTheme.typography.titleMedium)
+        }
+    }
+}
+
+/** First embedded cover found among [tracks], decoded once per list. */
+@Composable
+private fun rememberArtwork(tracks: List<Track>): ImageBitmap? {
+    var image by remember(tracks) { mutableStateOf<ImageBitmap?>(null) }
+
+    LaunchedEffect(tracks) {
+        image =
+            withContext(Dispatchers.IO) {
+                tracks.firstNotNullOfOrNull { track ->
+                    NativeTags.artwork(track.path)?.let { decodeArtwork(it) }
+                }
+            }
+    }
+
+    return image
+}
+
+private fun decodeArtwork(bytes: ByteArray): ImageBitmap? =
+    runCatching { ImageIO.read(ByteArrayInputStream(bytes))?.toComposeImageBitmap() }.getOrNull()
 
 @Composable
 private fun EntryRow(title: String, subtitle: String, onClick: () -> Unit) {
@@ -464,21 +674,25 @@ private fun TransportBar(
     onSeek: (Double) -> Unit,
     onVolume: (Double) -> Unit,
 ) {
+    val cover = rememberArtwork(listOfNotNull(current))
+
     Surface(
         modifier = Modifier.fillMaxWidth(),
         tonalElevation = 3.dp,
         shape = RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp),
     ) {
         Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
+            Cover(bitmap = cover, size = 40.dp)
+            Spacer(modifier = Modifier.width(12.dp))
             Text(
                 text = current?.title ?: "Nothing playing",
                 style = MaterialTheme.typography.bodyMedium,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.width(200.dp),
+                modifier = Modifier.width(180.dp),
             )
 
             IconButton(onClick = onPrevious, enabled = current != null) {

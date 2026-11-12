@@ -23,6 +23,22 @@
 #include "taglib/audioproperties.h"
 #include "taglib/fileref.h"
 #include "taglib/tag.h"
+#include "taglib/tbytevector.h"
+
+// Format-specific classes, reached only for embedded artwork: taglib keeps pictures off the base
+// Tag interface, so each container has to be asked in its own way.
+#include "taglib/attachedpictureframe.h"
+#include "taglib/flacfile.h"
+#include "taglib/flacpicture.h"
+#include "taglib/id3v2tag.h"
+#include "taglib/mp4coverart.h"
+#include "taglib/mp4file.h"
+#include "taglib/mp4item.h"
+#include "taglib/mp4tag.h"
+#include "taglib/mpegfile.h"
+#include "taglib/opusfile.h"
+#include "taglib/vorbisfile.h"
+#include "taglib/xiphcomment.h"
 
 namespace {
 
@@ -34,6 +50,88 @@ constexpr int FIELD_COUNT = 6;
 
 std::string toUtf8(const TagLib::String &value) {
     return value.isEmpty() ? std::string() : value.to8Bit(true);
+}
+
+TagLib::ByteVector xiphPicture(TagLib::Ogg::XiphComment *comment) {
+    if (comment == nullptr) {
+        return {};
+    }
+
+    const auto &pictures = comment->pictureList();
+    TagLib::ByteVector fallback;
+    for (const auto *picture : pictures) {
+        if (picture->type() == TagLib::FLAC::Picture::FrontCover) {
+            return picture->data();
+        }
+        if (fallback.isEmpty()) {
+            fallback = picture->data();
+        }
+    }
+    return fallback;
+}
+
+/** The front cover of a file, or the first picture it has, or nothing. */
+TagLib::ByteVector embeddedPicture(TagLib::File *file) {
+    if (file == nullptr) {
+        return {};
+    }
+
+    if (auto *mpeg = dynamic_cast<TagLib::MPEG::File *>(file)) {
+        TagLib::ID3v2::Tag *tag = mpeg->ID3v2Tag();
+        if (tag == nullptr) {
+            return {};
+        }
+        TagLib::ByteVector fallback;
+        for (auto *frame : tag->frameList("APIC")) {
+            auto *picture = dynamic_cast<TagLib::ID3v2::AttachedPictureFrame *>(frame);
+            if (picture == nullptr) {
+                continue;
+            }
+            if (picture->type() == TagLib::ID3v2::AttachedPictureFrame::FrontCover) {
+                return picture->picture();
+            }
+            if (fallback.isEmpty()) {
+                fallback = picture->picture();
+            }
+        }
+        return fallback;
+    }
+
+    if (auto *flac = dynamic_cast<TagLib::FLAC::File *>(file)) {
+        TagLib::ByteVector fallback;
+        for (const auto *picture : flac->pictureList()) {
+            if (picture->type() == TagLib::FLAC::Picture::FrontCover) {
+                return picture->data();
+            }
+            if (fallback.isEmpty()) {
+                fallback = picture->data();
+            }
+        }
+        return fallback;
+    }
+
+    if (auto *opus = dynamic_cast<TagLib::Ogg::Opus::File *>(file)) {
+        return xiphPicture(opus->tag());
+    }
+
+    if (auto *vorbis = dynamic_cast<TagLib::Ogg::Vorbis::File *>(file)) {
+        return xiphPicture(vorbis->tag());
+    }
+
+    if (auto *mp4 = dynamic_cast<TagLib::MP4::File *>(file)) {
+        TagLib::MP4::Tag *tag = mp4->tag();
+        if (tag == nullptr) {
+            return {};
+        }
+        const TagLib::MP4::Item item = tag->item("covr");
+        if (!item.isValid()) {
+            return {};
+        }
+        const TagLib::MP4::CoverArtList covers = item.toCoverArtList();
+        return covers.isEmpty() ? TagLib::ByteVector() : covers.front().data();
+    }
+
+    return {};
 }
 
 } // namespace
@@ -104,4 +202,41 @@ Java_org_oxycblt_auxio_linux_music_NativeTags_readNative(JNIEnv *env, jclass, js
     }
 
     return result;
+}
+
+extern "C" JNIEXPORT jbyteArray JNICALL
+Java_org_oxycblt_auxio_linux_music_NativeTags_readArtworkNative(JNIEnv *env, jclass, jstring jPath) {
+    if (jPath == nullptr) {
+        return nullptr;
+    }
+
+    const char *pathChars = env->GetStringUTFChars(jPath, nullptr);
+    if (pathChars == nullptr) {
+        return nullptr;
+    }
+    const std::string path(pathChars);
+    env->ReleaseStringUTFChars(jPath, pathChars);
+
+    try {
+        // Audio properties are irrelevant here, so skip parsing them.
+        TagLib::FileRef file(path.c_str(), false);
+        if (file.isNull()) {
+            return nullptr;
+        }
+
+        const TagLib::ByteVector data = embeddedPicture(file.file());
+        if (data.isEmpty()) {
+            return nullptr;
+        }
+
+        const auto size = static_cast<jsize>(data.size());
+        jbyteArray result = env->NewByteArray(size);
+        if (result == nullptr) {
+            return nullptr;
+        }
+        env->SetByteArrayRegion(result, 0, size, reinterpret_cast<const jbyte *>(data.data()));
+        return result;
+    } catch (...) {
+        return nullptr;
+    }
 }

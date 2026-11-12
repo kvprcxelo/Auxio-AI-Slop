@@ -69,7 +69,12 @@ data class MusicLibrary(
 object Library {
     const val UNKNOWN_ARTIST = "Unknown artist"
 
-    fun build(songs: List<Track>): MusicLibrary {
+    /**
+     * @param separators characters that split a multi-artist tag into separate artists, matching
+     *   Auxio's metadata separator setting. Album grouping still uses the raw tag, so a compilation
+     *   stays one album.
+     */
+    fun build(songs: List<Track>, separators: Set<Char> = emptySet()): MusicLibrary {
         val albums =
             songs
                 .groupBy { albumName(it) to (it.artist ?: UNKNOWN_ARTIST) }
@@ -90,13 +95,16 @@ object Library {
 
         val artists =
             songs
-                .groupBy { it.artist ?: UNKNOWN_ARTIST }
+                .flatMap { track -> artistNames(track, separators).map { name -> name to track } }
+                .groupBy({ it.first }, { it.second })
                 .map { (name, tracks) ->
+                    val distinct = tracks.distinctBy { it.id }
+                    val ids = distinct.map { it.id }.toSet()
                     Artist(
                         name = name,
-                        albums = albums.filter { it.artist == name },
+                        albums = albums.filter { album -> album.tracks.any { it.id in ids } },
                         tracks =
-                            tracks.sortedWith(
+                            distinct.sortedWith(
                                 compareBy({ it.album ?: "" }, { it.trackNumber ?: 0 })
                             ),
                     )
@@ -108,4 +116,15 @@ object Library {
 
     private fun albumName(track: Track): String =
         track.album ?: track.path.parent?.fileName?.toString() ?: "Unknown album"
+
+    /** Artist names for a track, split on the configured separators. */
+    internal fun artistNames(track: Track, separators: Set<Char>): List<String> {
+        val raw = track.artist?.takeIf { it.isNotBlank() } ?: return listOf(UNKNOWN_ARTIST)
+        if (separators.isEmpty()) return listOf(raw)
+
+        return raw.split(*separators.toCharArray())
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+            .ifEmpty { listOf(UNKNOWN_ARTIST) }
+    }
 }
