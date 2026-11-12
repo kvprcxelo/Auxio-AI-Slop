@@ -1,15 +1,15 @@
 <p align="center"><img src="fastlane/metadata/android/en-US/images/icon.png" width="150"></p>
 <h1 align="center"><b>Auxio-AI-Slop</b></h1>
-<h4 align="center">An unofficial port of Auxio for Linux; a simple, rational music player.</h4>
+<h4 align="center">[A simple, rational music player](https://github.com/OxygenCobalt/Auxio), unofficially ported to Linux.</h4>
 
 
 ## About
 
 **WARNING: This fork is in development and is NOT ready to be used.**
 
-Auxio is a local music player with a fast, reliable UI/UX without the many useless features present in other music players. Built off of modern media playback libraries, Auxio has superior library support and listening quality compared to other apps that use outdated functionality. Yes, this port is fully AI. In short, **It plays music.**
+Auxio, and this fork, are local music players with fast, reliable UI/UX without the many useless features present in other music players. Built off of modern media playback libraries, they have superior library support and listening quality compared to other apps that use outdated functionality. In short, **It plays music.**
 
-**This is a fork of the dev branch of Auxio. Expect bugs.**
+**This is a fork of the dev branch of Auxio and a fully AI-made port. Expect bugs.**
 
 ## Screenshots
 
@@ -60,6 +60,12 @@ You can support the creator of Auxio through [OxygenCobalt's Github Sponsors pag
 Add dependencies later...
 
 ## Building
+
+We ask that you have these tools to build our app:
+-
+-
+-
+...
 
 Write this later...
 
