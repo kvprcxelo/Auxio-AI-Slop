@@ -1,3 +1,21 @@
+/*
+ * Copyright (c) 2026 Auxio Project
+ * App.kt is part of Auxio.
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
+ 
 package org.oxycblt.auxio.linux.ui
 
 import androidx.compose.foundation.background
@@ -32,10 +50,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import java.nio.file.Path
 import kotlinx.coroutines.delay
 import org.oxycblt.auxio.linux.music.Track
 import org.oxycblt.auxio.linux.playback.MpvPlayer
-import java.nio.file.Path
 
 @Composable
 fun AuxioApp(player: MpvPlayer, tracks: List<Track>, roots: List<Path>) {
@@ -49,10 +67,11 @@ fun AuxioApp(player: MpvPlayer, tracks: List<Track>, roots: List<Path>) {
     val visible =
         remember(tracks, query) {
             if (query.isBlank()) tracks
-            else tracks.filter {
-                it.title.contains(query, ignoreCase = true) ||
-                    it.artist?.contains(query, ignoreCase = true) == true
-            }
+            else
+                tracks.filter {
+                    it.title.contains(query, ignoreCase = true) ||
+                        it.artist?.contains(query, ignoreCase = true) == true
+                }
         }
 
     LaunchedEffect(Unit) {
@@ -205,7 +224,8 @@ private fun TransportBar(
             Spacer(modifier = Modifier.width(8.dp))
             Text(text = formatTime(position), style = MaterialTheme.typography.labelSmall)
             Slider(
-                value = if (duration > 0.0) (position / duration).toFloat().coerceIn(0f, 1f) else 0f,
+                value =
+                    if (duration > 0.0) (position / duration).toFloat().coerceIn(0f, 1f) else 0f,
                 onValueChange = { onSeek(it.toDouble()) },
                 enabled = duration > 0.0,
                 modifier = Modifier.weight(1f).padding(horizontal = 12.dp),

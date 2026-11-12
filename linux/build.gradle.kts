@@ -4,10 +4,21 @@ plugins {
     kotlin("jvm") version "2.4.21"
     id("org.jetbrains.kotlin.plugin.compose") version "2.4.21"
     id("org.jetbrains.compose") version "1.12.2"
+    id("com.diffplug.spotless") version "8.10.1"
 }
 
 kotlin {
     jvmToolchain(21)
+}
+
+// Mirrors the root project's formatting rules so `./gradlew spotlessCheck` from the repository
+// root accepts these sources too.
+spotless {
+    kotlin {
+        target("src/**/*.kt")
+        ktfmt().kotlinlangStyle()
+        licenseHeaderFile(file("../NOTICE"))
+    }
 }
 
 dependencies {
