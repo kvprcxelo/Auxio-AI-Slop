@@ -50,6 +50,47 @@ compose.desktop {
     }
 }
 
+// The tag reader is a small JNI shim over the taglib build that lives in the musikr submodule.
+val tagsLibrary =
+    layout.buildDirectory.get().file("native/libauxiotags.so").asFile
+
+val configureTagsNative by tasks.registering(Exec::class) {
+    val sourceDir = file("src/main/cpp")
+    val outputDir = layout.buildDirectory.get().dir("native").asFile
+    inputs.dir(sourceDir)
+    outputs.file(outputDir.resolve("CMakeCache.txt"))
+    commandLine(
+        "cmake",
+        "-S",
+        sourceDir.absolutePath,
+        "-B",
+        outputDir.absolutePath,
+        "-G",
+        "Ninja",
+        "-DCMAKE_BUILD_TYPE=Release",
+    )
+}
+
+val buildTagsNative by tasks.registering(Exec::class) {
+    group = "build"
+    description = "Builds the taglib JNI shim for Linux."
+    dependsOn(configureTagsNative)
+    val outputDir = layout.buildDirectory.get().dir("native").asFile
+    outputs.file(tagsLibrary)
+    commandLine("cmake", "--build", outputDir.absolutePath)
+}
+
 tasks.test {
     useJUnitPlatform()
+    dependsOn(buildTagsNative)
+    systemProperty("auxio.tags.library", tagsLibrary.absolutePath)
 }
+
+// `run` and the distributable need the shim too; the packaged app finds it through
+// AUXIO_TAGS_LIB, which the AppImage sets.
+tasks.matching { it.name == "run" }.configureEach {
+    dependsOn(buildTagsNative)
+    doFirst { (this as? JavaExec)?.systemProperty("auxio.tags.library", tagsLibrary.absolutePath) }
+}
+
+tasks.matching { it.name == "createDistributable" }.configureEach { dependsOn(buildTagsNative) }

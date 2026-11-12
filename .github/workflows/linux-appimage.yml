@@ -16,10 +16,10 @@ jobs:
     steps:
     - name: Clone repository
       uses: actions/checkout@v4
-    - name: Install libmpv
+    - name: Install build dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y libmpv2 file
+        sudo apt-get install -y libmpv2 file cmake ninja-build
     - name: Set up JDK 21
       uses: actions/setup-java@v4
       with:

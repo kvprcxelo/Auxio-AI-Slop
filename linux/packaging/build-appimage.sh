@@ -16,6 +16,9 @@ if [[ ! -x "$gradlew" ]]; then
     exit 1
 fi
 
+echo "==> Building taglib"
+"$here/build-taglib.sh"
+
 echo "==> Building distributable (version $version)"
 "$gradlew" -p "$module" --console=plain createDistributable
 
@@ -34,10 +37,13 @@ mkdir -p "$appdir/usr"
 echo "==> Assembling AppDir"
 cp -a "$appimage_dir"/* "$appdir/usr/"
 cp "$here/auxio.png" "$appdir/auxio.png"
+install -Dm755 "$module/build/native/libauxiotags.so" "$appdir/usr/lib/libauxiotags.so"
 
 cat > "$appdir/AppRun" <<'EOF'
 #!/bin/sh
 HERE=$(dirname "$(readlink -f "$0")")
+AUXIO_TAGS_LIB="$HERE/usr/lib/libauxiotags.so"
+export AUXIO_TAGS_LIB
 exec "$HERE/usr/bin/auxio" "$@"
 EOF
 chmod +x "$appdir/AppRun"

@@ -176,7 +176,7 @@ private fun TrackRow(track: Track, playing: Boolean, onClick: () -> Unit) {
                 overflow = TextOverflow.Ellipsis,
             )
             Text(
-                text = track.path.parent?.fileName?.toString().orEmpty(),
+                text = track.artist ?: track.path.parent?.fileName?.toString().orEmpty(),
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,

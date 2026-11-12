@@ -6,15 +6,17 @@ other's toolchain: the Android build needs the SDK and NDK, this one needs a JDK
 
 ## Status
 
-Early. It scans a folder and plays files, with a minimal Compose window on top. Tags are not
-read yet, so the list shows file names. No playlists, play queue, MPRIS, search ranking,
-ReplayGain or settings.
+Early. It scans a folder, reads tags through taglib, and plays files, with a minimal Compose
+window on top. The list shows title with artist, falling back to the file name when a file
+carries no tags. Album artist, disc numbers and embedded covers are not read yet, and there are
+no playlists, play queue, MPRIS, search ranking, ReplayGain or settings.
 
 ## Requirements
 
 - Linux x86_64
 - **JDK 21**
 - **libmpv** — any of `libmpv2` (Debian/Ubuntu), `mpv-libs` (Fedora), `mpv` (Arch)
+- **cmake** and **ninja** — to build the taglib tag reader
 - Optional for packaging: `appimagetool` (the script downloads it if absent)
 
 The player loads `libmpv` at runtime through JNA, so the library must be on the loader path.
@@ -27,13 +29,19 @@ Could not start playback: libmpv was not found. Install it with your package man
 
 ## Build
 
+Build taglib once, then the module:
+
 ```sh
+./linux/packaging/build-taglib.sh   # initialises submodules, builds taglib for x86_64
 cd linux
 JAVA_HOME=/path/to/jdk-21 ../gradlew build
 ```
 
-`build` compiles and runs the tests. Tests that drive libmpv are skipped when it is not
-installed, so a machine without a media stack still gets a green build.
+The tag reader is a JNI shim linking the taglib build from the `musikr` submodule, so
+`build-taglib.sh` has to run before Gradle; without it the native task fails with a message
+pointing back at the script. `build` then compiles, builds the shim and runs the tests. Tests
+that drive libmpv are skipped when it is not installed, so a machine without a media stack
+still gets a green build.
 
 ## Run
 
@@ -84,10 +92,11 @@ linux/
   build.gradle.kts              Compose Desktop, JNA, jpackage metadata
   src/main/kotlin/.../Main.kt   entry point, library roots from arguments
   src/main/kotlin/.../ui/       Compose UI: track list, transport bar
-  src/main/kotlin/.../music/    filesystem scanner and Track model
+  src/main/kotlin/.../music/    filesystem scanner, Track model, taglib bridge
   src/main/kotlin/.../playback/ libmpv binding and player wrapper
-  src/test/kotlin/              scanner and playback tests
-  packaging/                    AppImage script and icon
+  src/main/cpp/                 JNI tag reader over taglib, plus its CMake build
+  src/test/kotlin/              scanner, tag and playback tests
+  packaging/                    taglib and AppImage scripts, icon
 ```
 
 ## Notes on the port
@@ -97,6 +106,8 @@ linux/
 - **Media3 → libmpv.** libmpv covers gapless playback, ReplayGain tags and the formats we need
   without vendoring a decoder stack. It is called through JNA, which is the same C API a
   hand-written JNI shim would use, with no native build step to keep in sync.
-- **taglib** is built from the `musikr` submodule for Linux; metadata wiring is in progress. The
-  `linux/` module does not depend on the Android `musikr` module yet, since most of it imports
-  Android APIs.
+- **taglib** is built from the `musikr` submodule and read through a small JNI shim, so both
+  targets parse tags with the same library version. The shim does not reuse musikr's
+  `JMetadataBuilder`, which constructs Android metadata objects, and taglib 2.x keeps album
+  artist and disc off `Tag`; those need the format-specific tag classes. The `linux/` module
+  does not depend on the Android `musikr` module yet, since most of it imports Android APIs.

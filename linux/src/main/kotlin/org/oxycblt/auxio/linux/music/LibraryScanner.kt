@@ -25,7 +25,7 @@ import kotlin.io.path.isRegularFile
 import kotlin.io.path.nameWithoutExtension
 import kotlin.streams.asSequence
 
-/** A playable file. Tags are read once the taglib bridge is wired up. */
+/** A playable file, with tags where taglib could read them. */
 data class Track(
     val path: Path,
     val title: String,
@@ -38,7 +38,7 @@ data class Track(
  * Walks music folders and collects playable files.
  *
  * This replaces MediaStore: on Linux the library is just the filesystem, so scanning is a walk plus
- * an extension filter. Tag parsing and the SQLite cache hang off this later.
+ * an extension filter, with taglib supplying the metadata.
  */
 object LibraryScanner {
     private val EXTENSIONS =
@@ -69,11 +69,20 @@ object LibraryScanner {
                     stream
                         .asSequence()
                         .filter { it.isRegularFile() && it.extension.lowercase() in EXTENSIONS }
-                        .map { path ->
-                            Track(path = path, title = path.nameWithoutExtension)
-                        }
+                        .map { track(it) }
                         .toList()
                 }
             }
             .sortedBy { it.title.lowercase() }
+
+    private fun track(path: Path): Track {
+        val tags = NativeTags.read(path)
+        return Track(
+            path = path,
+            title = tags?.title ?: path.nameWithoutExtension,
+            artist = tags?.artist,
+            album = tags?.album,
+            durationSeconds = tags?.durationSeconds?.toDouble(),
+        )
+    }
 }
