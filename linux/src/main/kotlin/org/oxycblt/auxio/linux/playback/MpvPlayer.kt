@@ -31,8 +31,12 @@ import java.nio.file.Path
 class MpvPlayer(audioOutput: String = "auto") : AutoCloseable {
     private val api = Mpv.load()
 
-    private val ctx: Pointer =
+    private val ctx: Pointer = run {
+        // libmpv returns NULL from mpv_create() unless LC_NUMERIC is "C", and GTK installs
+        // the desktop's locale process-wide before we ever get here.
+        ProcessLocale.resetNumericToC()
         requireNotNull(api.mpv_create()) { "libmpv could not create a playback context" }
+    }
 
     init {
         checkOk(api.mpv_initialize(ctx), "initialize")

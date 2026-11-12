@@ -84,4 +84,32 @@ class MpvPlayerTest {
             player.close()
         }
     }
+
+    @Test
+    fun `creates a playback context while the process locale is not C`() {
+        assumeTrue(mpvAvailable(), "libmpv is not installed")
+
+        // A desktop session makes GTK install LC_ALL from the environment, and libmpv then
+        // refuses to create a context, so the player has to reset LC_NUMERIC itself.
+        val locale =
+            listOf("C.utf8", "C.UTF-8", "en_US.UTF-8", "de_DE.UTF-8").firstOrNull {
+                ProcessLocale.setNumeric(it)
+            }
+        assumeTrue(locale != null, "no non-C LC_NUMERIC is installed to test with")
+
+        try {
+            // The hazard itself: a bare context cannot be created under this locale. Only
+            // libmpv builds that enforce it are interesting here.
+            assumeTrue(
+                runCatching { Mpv.load().mpv_create() }.getOrNull() == null,
+                "this libmpv tolerates a non-C LC_NUMERIC, so there is nothing to guard",
+            )
+
+            MpvPlayer(audioOutput = "null").use { player ->
+                assertTrue(!player.isPaused(), "a fresh context should not be paused")
+            }
+        } finally {
+            ProcessLocale.resetNumericToC()
+        }
+    }
 }

@@ -106,6 +106,10 @@ linux/
 - **Media3 → libmpv.** libmpv covers gapless playback, ReplayGain tags and the formats we need
   without vendoring a decoder stack. It is called through JNA, which is the same C API a
   hand-written JNI shim would use, with no native build step to keep in sync.
+- **libmpv needs `LC_NUMERIC=C`** — it returns no playback context otherwise. GTK installs the
+  desktop's locale process-wide, so the player resets that one category through libc just before
+  creating the context. Without it, every UTF-8 desktop session fails with "Non-C locale
+  detected" on the first play.
 - **taglib** is built from the `musikr` submodule and read through a small JNI shim, so both
   targets parse tags with the same library version. The shim does not reuse musikr's
   `JMetadataBuilder`, which constructs Android metadata objects, and taglib 2.x keeps album
