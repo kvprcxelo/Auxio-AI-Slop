@@ -39,7 +39,8 @@ class MpvPlayer(audioOutput: String = "auto") : AutoCloseable {
     }
 
     init {
-        checkOk(api.mpv_initialize(ctx), "initialize")
+        // Options are only honoured before mpv_initialize; setting them afterwards is silently
+        // ignored, which is how an unconfigured audio output can look like "nothing plays".
         setOption("ao", audioOutput)
         // Audio only: never spawn a video surface for embedded cover art.
         setOption("vid", "no")
@@ -47,16 +48,34 @@ class MpvPlayer(audioOutput: String = "auto") : AutoCloseable {
         setOption("force-window", "no")
         setOption("idle", "yes")
         setOption("gapless-audio", "yes")
+
+        if (DebugLog.enabled) {
+            setOption("terminal", "yes")
+            setOption("msg-level", "all=v")
+            DebugLog.mpvFile?.let { setOption("log-file", it.toAbsolutePath().toString()) }
+        }
+
+        checkOk(api.mpv_initialize(ctx), "initialize")
+        DebugLog.write(
+            "mpv ready: ao=$audioOutput version=${api.mpv_client_api_version()} " +
+                "mpvlog=${DebugLog.mpvFile?.toAbsolutePath() ?: "stderr"}"
+        )
     }
 
     fun load(path: Path, autoplay: Boolean = true) {
         val escaped = path.toAbsolutePath().toString().replace("\\", "\\\\").replace("\"", "\\\"")
-        command("loadfile \"$escaped\" ${if (autoplay) "replace" else "replace"}".trim())
+        val command = "loadfile \"$escaped\" ${if (autoplay) "replace" else "replace"}"
+        DebugLog.write(command)
+        command(command)
+        DebugLog.write(
+            "loaded: path=${getString("path")} duration=${duration()} " +
+                "idle=${isIdle()} paused=${isPaused()}"
+        )
     }
 
-    fun play() = setOption("pause", "no")
+    fun play() = setProperty("pause", "no")
 
-    fun pause() = setOption("pause", "yes")
+    fun pause() = setProperty("pause", "yes")
 
     fun togglePause() = command("cycle pause")
 
@@ -76,17 +95,29 @@ class MpvPlayer(audioOutput: String = "auto") : AutoCloseable {
 
     fun isIdle(): Boolean = getFlag("idle-active")
 
+    /** Current audio output in use, as mpv resolved "auto". */
+    fun audioOutput(): String? = getString("current-ao")
+
     override fun close() {
         runCatching { command("quit") }
         api.mpv_terminate_destroy(ctx)
+        DebugLog.write("mpv closed")
     }
 
     private fun command(args: String) {
-        checkOk(api.mpv_command_string(ctx, args), args)
+        val result = api.mpv_command_string(ctx, args)
+        if (result < 0) {
+            DebugLog.write("command failed ($result): $args")
+            checkOk(result, args)
+        }
     }
 
     private fun setOption(name: String, value: String) {
-        checkOk(api.mpv_set_option_string(ctx, name, value), "set $name")
+        checkOk(api.mpv_set_option_string(ctx, name, value), "set $name=$value")
+    }
+
+    private fun setProperty(name: String, value: String) {
+        checkOk(api.mpv_set_property_string(ctx, name, value), "set $name=$value")
     }
 
     private fun setDouble(name: String, value: Double) {
@@ -107,6 +138,15 @@ class MpvPlayer(audioOutput: String = "auto") : AutoCloseable {
         val memory = Memory(8)
         val result = api.mpv_get_property(ctx, name, MPV_FORMAT_FLAG, memory)
         return result >= 0 && memory.getInt(0) != 0
+    }
+
+    private fun getString(name: String): String? {
+        val ptr = api.mpv_get_property_string(ctx, name) ?: return null
+        return try {
+            ptr.getString(0)
+        } finally {
+            api.mpv_free(ptr)
+        }
     }
 
     private fun checkOk(result: Int, what: String) {

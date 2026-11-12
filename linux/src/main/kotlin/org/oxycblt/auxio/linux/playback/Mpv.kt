@@ -38,6 +38,12 @@ internal interface MpvApi : Library {
 
     fun mpv_set_property(ctx: Pointer, name: String, format: Int, data: Pointer): Int
 
+    fun mpv_set_property_string(ctx: Pointer, name: String, data: String): Int
+
+    fun mpv_get_property_string(ctx: Pointer, name: String): Pointer?
+
+    fun mpv_client_api_version(): Long
+
     fun mpv_error_string(error: Int): String?
 
     fun mpv_free(data: Pointer)

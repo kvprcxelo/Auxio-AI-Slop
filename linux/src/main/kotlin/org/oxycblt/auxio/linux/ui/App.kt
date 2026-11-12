@@ -63,6 +63,7 @@ fun AuxioApp(player: MpvPlayer, tracks: List<Track>, roots: List<Path>) {
     var paused by remember { mutableStateOf(true) }
     var volume by remember { mutableStateOf(100.0) }
     var query by remember { mutableStateOf("") }
+    var status by remember { mutableStateOf<String?>(null) }
 
     val visible =
         remember(tracks, query) {
@@ -107,6 +108,15 @@ fun AuxioApp(player: MpvPlayer, tracks: List<Track>, roots: List<Path>) {
                     )
                 }
 
+                status?.let { message ->
+                    Text(
+                        text = message,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                    )
+                }
+
                 if (tracks.isEmpty()) {
                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         Text(
@@ -123,7 +133,10 @@ fun AuxioApp(player: MpvPlayer, tracks: List<Track>, roots: List<Path>) {
                                 playing = current?.path == track.path,
                                 onClick = {
                                     current = track
-                                    player.load(track.path)
+                                    status =
+                                        runCatching { player.load(track.path) }
+                                            .exceptionOrNull()
+                                            ?.let { "Could not play ${track.title}: ${it.message}" }
                                 },
                             )
                         }

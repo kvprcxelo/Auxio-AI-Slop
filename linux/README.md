@@ -27,6 +27,22 @@ Could not start playback: libmpv was not found. Install it with your package man
 (for example `mpv-libs` or `libmpv2`).
 ```
 
+## Logs
+
+Playback problems are hard to diagnose without libmpv's output, so logging is behind one
+environment variable:
+
+```sh
+AUXIO_LOG=1 ./auxio-0.1.2-x86_64.AppImage            # to the terminal
+AUXIO_LOG=~/auxio.log ./auxio-0.1.2-x86_64.AppImage  # to a file, mpv's own log included
+```
+
+With a path, the app appends its own lines (the `loadfile` command, the resolved audio output,
+durations, errors) to that file and asks mpv for a verbose log at `<path>.mpv`, so launching from
+a desktop menu still produces something you can attach to a report. Send both: `auxio.log` has the
+app's view, `auxio.log.mpv` has everything the playback core did. Errors from a failed play are
+also shown in the window, above the list.
+
 ## Build
 
 Build taglib once, then the module:
