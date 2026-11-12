@@ -38,7 +38,7 @@ class MpvPlayerTest {
     fun `plays a file and advances the clock`() {
         assumeTrue(mpvAvailable(), "libmpv is not installed")
 
-        val player = MpvPlayer(audioOutput = "null")
+        val player = MpvPlayer(audioDriver = "null")
         try {
             player.load(tone())
 
@@ -64,7 +64,7 @@ class MpvPlayerTest {
     fun `pause stops the clock and play resumes it`() {
         assumeTrue(mpvAvailable(), "libmpv is not installed")
 
-        val player = MpvPlayer(audioOutput = "null")
+        val player = MpvPlayer(audioDriver = "null")
         try {
             player.load(tone())
             Thread.sleep(400)
@@ -82,6 +82,21 @@ class MpvPlayerTest {
             assertTrue(!player.isPaused(), "player should report playing")
         } finally {
             player.close()
+        }
+    }
+
+    @Test
+    fun `leaves the audio driver list alone by default`() {
+        assumeTrue(mpvAvailable(), "libmpv is not installed")
+
+        // A literal "auto" in `ao` names a driver that does not exist, and mpv then refuses to
+        // initialize audio entirely; autoselection is the option being unset.
+        MpvPlayer().use { player ->
+            assertEquals("", player.audioDrivers(), "default should not pin an audio driver")
+        }
+
+        MpvPlayer(audioDriver = "null").use { player ->
+            assertEquals("null", player.audioDrivers())
         }
     }
 
@@ -105,7 +120,7 @@ class MpvPlayerTest {
                 "this libmpv tolerates a non-C LC_NUMERIC, so there is nothing to guard",
             )
 
-            MpvPlayer(audioOutput = "null").use { player ->
+            MpvPlayer(audioDriver = "null").use { player ->
                 assertTrue(!player.isPaused(), "a fresh context should not be paused")
             }
         } finally {

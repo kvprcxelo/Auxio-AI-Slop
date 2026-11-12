@@ -28,7 +28,7 @@ import java.nio.file.Path
  * State is polled rather than observed through mpv's event loop: a music player needs time position
  * at a handful of hertz anyway, and polling keeps the binding free of the event struct.
  */
-class MpvPlayer(audioOutput: String = "auto") : AutoCloseable {
+class MpvPlayer(audioDriver: String? = null) : AutoCloseable {
     private val api = Mpv.load()
 
     private val ctx: Pointer = run {
@@ -41,7 +41,10 @@ class MpvPlayer(audioOutput: String = "auto") : AutoCloseable {
     init {
         // Options are only honoured before mpv_initialize; setting them afterwards is silently
         // ignored, which is how an unconfigured audio output can look like "nothing plays".
-        setOption("ao", audioOutput)
+        //
+        // `ao` is a driver *list*, not a selection strategy: "auto" matches no driver and mpv then
+        // fails with "Audio output auto not found", so autoselection means leaving it unset.
+        audioDriver?.takeIf { it.isNotBlank() }?.let { setOption("ao", it) }
         // Audio only: never spawn a video surface for embedded cover art.
         setOption("vid", "no")
         setOption("audio-display", "no")
@@ -57,7 +60,8 @@ class MpvPlayer(audioOutput: String = "auto") : AutoCloseable {
 
         checkOk(api.mpv_initialize(ctx), "initialize")
         DebugLog.write(
-            "mpv ready: ao=$audioOutput version=${api.mpv_client_api_version()} " +
+            "mpv ready: ao=${audioDriver ?: "(mpv default)"} " +
+                "version=${api.mpv_client_api_version()} " +
                 "mpvlog=${DebugLog.mpvFile?.toAbsolutePath() ?: "stderr"}"
         )
     }
@@ -68,8 +72,8 @@ class MpvPlayer(audioOutput: String = "auto") : AutoCloseable {
         DebugLog.write(command)
         command(command)
         DebugLog.write(
-            "loaded: path=${getString("path")} duration=${duration()} " +
-                "idle=${isIdle()} paused=${isPaused()}"
+            "state: idle=${isIdle()} paused=${isPaused()} " +
+                "ao=${currentAudioDriver() ?: "(none)"} duration=${duration()}"
         )
     }
 
@@ -95,8 +99,11 @@ class MpvPlayer(audioOutput: String = "auto") : AutoCloseable {
 
     fun isIdle(): Boolean = getFlag("idle-active")
 
-    /** Current audio output in use, as mpv resolved "auto". */
-    fun audioOutput(): String? = getString("current-ao")
+    /** The configured `ao` driver list, empty when mpv autoselects. */
+    fun audioDrivers(): String? = getString("ao")
+
+    /** The audio driver actually in use, once playback has started. */
+    fun currentAudioDriver(): String? = getString("current-ao")
 
     override fun close() {
         runCatching { command("quit") }
