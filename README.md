@@ -1,20 +1,21 @@
 <p align="center"><img src="fastlane/metadata/android/en-US/images/icon.png" width="150"></p>
 <h1 align="center"><b>Auxio-AI-Slop</b></h1>
-<h4 align="center">[A simple, rational music player](https://github.com/OxygenCobalt/Auxio), unofficially ported to Linux.</h4>
+<h4 align="center"><a href="https://github.com/OxygenCobalt/Auxio">A simple, rational music player</a>, unofficially ported to Linux.</h4>
 
 
 ## About
 
 **WARNING: This fork is in development and is NOT ready to be used.**
 
-Auxio, and this fork, are local music players with fast, reliable UI/UX without the many useless features present in other music players. Built off of modern media playback libraries, they have superior library support and listening quality compared to other apps that use outdated functionality. In short, **It plays music.**
+Auxio, and this fork, are local music players with fast, reliable UI/UX without the many useless features present in other music players. Built off of modern media playback libraries, they have superior library support and listening quality compared to other apps that use outdated functionality. In short, **they play music.**
 
-**This is a fork of the dev branch of Auxio and a fully AI-made port. Expect bugs.**
+**This is a fork of the dev branch of Auxio; a fully AI-made port. Expect bugs.**
 
 ## Screenshots
 
 Replace these later...
 
+<!--
 <p align="center">
     <img src="fastlane/metadata/android/en-US/images/phoneScreenshots/shot0.png" width=250>
     <img src="fastlane/metadata/android/en-US/images/phoneScreenshots/shot1.png" width=250>
@@ -23,7 +24,7 @@ Replace these later...
     <img src="fastlane/metadata/android/en-US/images/phoneScreenshots/shot4.png" width=250>
     <img src="fastlane/metadata/android/en-US/images/phoneScreenshots/shot5.png" width=250> 
 </p>
-
+-->
 
 ## Features
 
@@ -62,12 +63,11 @@ Add dependencies later...
 ## Building
 
 We ask that you have these tools to build our app:
+- Add build deps here...
 -
 -
--
-...
 
-Write this later...
+Write the build steps later...
 
 ## License
 
