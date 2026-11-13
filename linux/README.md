@@ -9,8 +9,8 @@ other's toolchain: the Android build needs the SDK and NDK, this one needs a JDK
 It scans folders, reads tags through taglib, and browses the result as **songs, albums and
 artists**, each with a detail view. Playing a song fills a queue from the list you started it in,
 with previous/next, automatic advance when a track ends, **shuffle** and **repeat all / repeat
-one**. The progress bar is drawn as a scrolling wave and still seeks on click or drag. Cover art
-is shown for the current album, artist and track: the picture embedded in the file, or
+one**. The progress bar is Material 3's expressive wavy progress indicator, inside a taller touch
+target so it still seeks on click or drag. Cover art is shown for the current album, artist and track: the picture embedded in the file, or
 `cover.jpg`/`folder.jpg` (and similar names) from its folder. Artists are grouped
 case-insensitively, so "x" and "X" are one artist shown with whichever spelling occurs most, and
 repeated names inside one tag are dropped. Album dates are read from the date tag and shown in a
@@ -151,6 +151,10 @@ linux/
   desktop's locale process-wide, so the player resets that one category through libc just before
   creating the context. Without it, every UTF-8 desktop session fails with "Non-C locale
   detected" on the first play.
+- **Material 3 Expressive** is only shipped in the alpha Material3 line, so `linux/build.gradle.kts`
+  pins `org.jetbrains.compose.material3:material3:1.12.0-alpha03`, the version Compose Multiplatform
+  1.12.2 itself is built against, instead of the `compose.material3` alias. That is what provides
+  `LinearWavyProgressIndicator`; the stable 1.9.0 artifact does not contain it.
 - **taglib** is built from the `musikr` submodule and read through a small JNI shim, so both
   targets parse tags with the same library version. The shim does not reuse musikr's
   `JMetadataBuilder`, which constructs Android metadata objects, and taglib 2.x keeps album

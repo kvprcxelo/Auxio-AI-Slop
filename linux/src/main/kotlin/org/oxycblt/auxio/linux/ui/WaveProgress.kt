@@ -18,70 +18,39 @@
  
 package org.oxycblt.auxio.linux.ui
 
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.LinearWavyProgressIndicator
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import kotlin.math.PI
-import kotlin.math.sin
 
 /**
- * A seek bar drawn as a travelling wave.
+ * The transport's seek bar, drawn with Material 3's expressive wavy progress indicator.
  *
- * The played part is a sine wave that scrolls while music plays, and the rest is a plain line.
- * Tapping or dragging still seeks, so it behaves like the slider it replaces.
+ * Progress indicators do not handle input, so the wave sits inside a taller touch target that turns
+ * taps and horizontal drags into a seek fraction.
  */
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 internal fun WaveProgress(
     progress: Float,
     enabled: Boolean,
     onSeek: (Float) -> Unit,
     modifier: Modifier = Modifier,
-    height: Dp = 26.dp,
 ) {
-    val accent = MaterialTheme.colorScheme.primary
-    val idle = MaterialTheme.colorScheme.outlineVariant
+    val clamped = progress.coerceIn(0f, 1f)
 
-    val phase =
-        if (enabled) {
-            val transition = rememberInfiniteTransition(label = "wave")
-            val animated by
-                transition.animateFloat(
-                    initialValue = 0f,
-                    targetValue = (2 * PI).toFloat(),
-                    animationSpec =
-                        infiniteRepeatable(
-                            animation = tween(durationMillis = 2400, easing = LinearEasing),
-                            repeatMode = RepeatMode.Restart,
-                        ),
-                    label = "phase",
-                )
-            animated
-        } else {
-            0f
-        }
-
-    Canvas(
+    Box(
         modifier =
             modifier
-                .height(height)
+                .height(44.dp)
                 .pointerInput(enabled) {
                     if (!enabled) return@pointerInput
                     detectTapGestures { offset ->
@@ -93,47 +62,9 @@ internal fun WaveProgress(
                     detectHorizontalDragGestures { change, _ ->
                         onSeek((change.position.x / size.width).coerceIn(0f, 1f))
                     }
-                }
+                },
+        contentAlignment = Alignment.Center,
     ) {
-        val centerY = size.height / 2f
-        val amplitude = size.height / 3.5f
-        val wavelength = 56.dp.toPx()
-        val played = size.width * progress.coerceIn(0f, 1f)
-
-        drawLine(
-            color = idle,
-            start = Offset(0f, centerY),
-            end = Offset(size.width, centerY),
-            strokeWidth = 2.dp.toPx(),
-            cap = StrokeCap.Round,
-        )
-
-        if (played <= 0f) return@Canvas
-
-        fun waveY(x: Float): Float =
-            centerY + amplitude * sin(x / wavelength * 2f * PI.toFloat() + phase)
-
-        val line = Path().apply { moveTo(0f, waveY(0f)) }
-        var x = 0f
-        val step = 2f
-        while (x < played) {
-            x = minOf(x + step, played)
-            line.lineTo(x, waveY(x))
-        }
-
-        val filled =
-            Path().apply {
-                addPath(line)
-                lineTo(played, centerY + amplitude)
-                lineTo(0f, centerY + amplitude)
-                close()
-            }
-
-        drawPath(filled, accent.copy(alpha = 0.28f))
-        drawPath(
-            path = line,
-            color = accent,
-            style = Stroke(width = 2.5.dp.toPx(), cap = StrokeCap.Round),
-        )
+        LinearWavyProgressIndicator(progress = { clamped }, modifier = Modifier.fillMaxWidth())
     }
 }

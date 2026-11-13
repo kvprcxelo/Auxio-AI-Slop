@@ -23,7 +23,9 @@ spotless {
 
 dependencies {
     implementation(compose.desktop.currentOs)
-    implementation(compose.material3)
+    // Material 3 Expressive (the wavy progress indicator) only ships in the alpha line.
+    // This is the version Compose Multiplatform 1.12.2 itself is built against.
+    implementation("org.jetbrains.compose.material3:material3:1.12.0-alpha03")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.11.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-swing:1.11.0")
 
@@ -43,7 +45,7 @@ compose.desktop {
         nativeDistributions {
             targetFormats(TargetFormat.Deb, TargetFormat.Rpm)
             packageName = "auxio"
-            packageVersion = "0.4.0"
+            packageVersion = "0.4.1"
             description = "A simple, rational music player"
             vendor = "Auxio-AI-Slop"
         }
