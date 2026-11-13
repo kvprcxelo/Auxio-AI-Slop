@@ -38,6 +38,7 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -169,7 +170,8 @@ fun AuxioApp(
             if (queue.advanceIfFinished()) current = queue.current
             position = player.timePosition()
             duration = player.duration()
-            paused = player.isPaused()
+            // mpv reports pause=false while idle, so an empty queue is paused by definition.
+            paused = queue.current == null || player.isPaused()
             delay(250)
         }
     }
@@ -220,14 +222,16 @@ fun AuxioApp(
                     Spacer(modifier = Modifier.weight(1f))
                     Text(
                         text =
-                            "${currentLibrary.songs.size} songs · " +
-                                "${currentLibrary.albums.size} albums · " +
-                                "${currentLibrary.artists.size} artists",
+                            count(currentLibrary.songs.size, "song") +
+                                " · " +
+                                count(currentLibrary.albums.size, "album") +
+                                " · " +
+                                count(currentLibrary.artists.size, "artist"),
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     IconButton(onClick = { showSettings = !showSettings }) {
-                        Text(text = "\u2699", style = MaterialTheme.typography.titleLarge)
+                        Icon(imageVector = AuxioIcons.Settings, contentDescription = "Settings")
                     }
                 }
 
@@ -376,6 +380,12 @@ private fun SettingsPage(
             Spacer(modifier = Modifier.size(8.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Button(onClick = onRefresh, enabled = !scanning) {
+                    Icon(
+                        imageVector = AuxioIcons.Refresh,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
                     Text(if (scanning) "Scanning…" else "Refresh library")
                 }
                 Spacer(modifier = Modifier.width(12.dp))
@@ -413,6 +423,7 @@ private fun SettingsPage(
                         "their raw tag. Changes apply immediately and are saved.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.width(720.dp),
             )
         }
     }
@@ -431,6 +442,7 @@ private fun SongList(
                 track = track,
                 subtitle = track.artist ?: track.album.orEmpty(),
                 playing = current?.id == track.id,
+                artwork = rememberArtwork(listOf(track)),
                 onClick = { onPlay(index) },
             )
         }
@@ -453,6 +465,7 @@ private fun AlbumList(albums: List<Album>, onOpen: (Album) -> Unit, modifier: Mo
                         )
                         album.year?.let { append(" · $it") }
                     },
+                artwork = rememberArtwork(album.tracks),
                 onClick = { onOpen(album) },
             )
         }
@@ -473,6 +486,7 @@ private fun ArtistList(
                     "${artist.albums.size} " +
                         (if (artist.albums.size == 1) "album" else "albums") +
                         " · ${artist.tracks.size} songs",
+                artwork = rememberArtwork(artist.tracks),
                 onClick = { onOpen(artist) },
             )
         }
@@ -499,6 +513,7 @@ private fun AlbumDetail(
                     append(" · ${formatTime(album.durationSeconds)}")
                 },
             cover = cover,
+            reserveCover = true,
             onBack = onBack,
         )
 
@@ -534,6 +549,7 @@ private fun ArtistDetail(
                     (if (artist.albums.size == 1) "album" else "albums") +
                     " · ${artist.tracks.size} songs",
             cover = cover,
+            reserveCover = true,
             onBack = onBack,
         )
 
@@ -578,15 +594,22 @@ private fun DetailHeader(
     subtitle: String,
     onBack: () -> Unit,
     cover: ImageBitmap? = null,
+    reserveCover: Boolean = cover != null,
 ) {
     Row(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        TextButton(onClick = onBack) { Text("\u2039 Back") }
+        TextButton(onClick = onBack) {
+            Icon(imageVector = AuxioIcons.ArrowBack, contentDescription = null)
+            Spacer(modifier = Modifier.width(4.dp))
+            Text("Back")
+        }
         Spacer(modifier = Modifier.width(8.dp))
-        Cover(bitmap = cover, size = 72.dp)
-        Spacer(modifier = Modifier.width(12.dp))
+        if (reserveCover) {
+            Cover(bitmap = cover, size = 72.dp)
+            Spacer(modifier = Modifier.width(12.dp))
+        }
         Column {
             Text(
                 text = title,
@@ -623,27 +646,59 @@ private fun Cover(bitmap: ImageBitmap?, size: Dp) {
                 contentScale = ContentScale.Crop,
             )
         } else {
-            Text(text = "\u266A", style = MaterialTheme.typography.titleMedium)
+            Icon(
+                imageVector = AuxioIcons.MusicNote,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
 }
 
-/** First cover found among [tracks], decoded once per list. */
+/** Decoded covers, keyed by the file the picture came from, so scrolling does not re-read them. */
+private object ArtworkCache {
+    private const val MAX_ENTRIES = 256
+
+    private val images =
+        object : LinkedHashMap<String, ImageBitmap?>(64, 0.75f, true) {
+            override fun removeEldestEntry(
+                eldest: MutableMap.MutableEntry<String, ImageBitmap?>?
+            ): Boolean = size > MAX_ENTRIES
+        }
+
+    fun contains(key: String): Boolean = synchronized(images) { images.containsKey(key) }
+
+    fun get(key: String): ImageBitmap? = synchronized(images) { images[key] }
+
+    fun put(key: String, image: ImageBitmap?) {
+        synchronized(images) { images[key] = image }
+    }
+}
+
+/** First cover found among [tracks], decoded once and then cached. */
 @Composable
 private fun rememberArtwork(tracks: List<Track>): ImageBitmap? {
-    var image by remember(tracks) { mutableStateOf<ImageBitmap?>(null) }
+    val key = tracks.firstOrNull()?.path?.toAbsolutePath()?.toString() ?: return null
+    var image by
+        remember(key) {
+            mutableStateOf(if (ArtworkCache.contains(key)) ArtworkCache.get(key) else null)
+        }
 
-    LaunchedEffect(tracks) {
-        image =
+    LaunchedEffect(key) {
+        if (ArtworkCache.contains(key)) return@LaunchedEffect
+
+        val found =
             withContext(Dispatchers.IO) {
-                val found = tracks.firstNotNullOfOrNull { track ->
+                tracks.firstNotNullOfOrNull { track ->
                     Artwork.bytes(track)?.let { decodeArtwork(it) }
                 }
-                if (found == null) {
-                    DebugLog.write("no artwork for ${tracks.firstOrNull()?.path ?: "nothing"}")
-                }
-                found
             }
+
+        ArtworkCache.put(key, found)
+        if (found == null) {
+            DebugLog.write("no artwork for ${tracks.first().path}")
+        }
+        image = found
     }
 
     return image
@@ -653,7 +708,12 @@ private fun decodeArtwork(bytes: ByteArray): ImageBitmap? =
     runCatching { ImageIO.read(ByteArrayInputStream(bytes))?.toComposeImageBitmap() }.getOrNull()
 
 @Composable
-private fun EntryRow(title: String, subtitle: String, onClick: () -> Unit) {
+private fun EntryRow(
+    title: String,
+    subtitle: String,
+    onClick: () -> Unit,
+    artwork: ImageBitmap? = null,
+) {
     Row(
         modifier =
             Modifier.fillMaxWidth()
@@ -661,12 +721,22 @@ private fun EntryRow(title: String, subtitle: String, onClick: () -> Unit) {
                 .padding(horizontal = 16.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        if (artwork != null) {
+            Cover(bitmap = artwork, size = 40.dp)
+            Spacer(modifier = Modifier.width(12.dp))
+        }
         RowContent(title = title, subtitle = subtitle)
     }
 }
 
 @Composable
-private fun TrackRow(track: Track, subtitle: String, playing: Boolean, onClick: () -> Unit) {
+private fun TrackRow(
+    track: Track,
+    subtitle: String,
+    playing: Boolean,
+    onClick: () -> Unit,
+    artwork: ImageBitmap? = null,
+) {
     Row(
         modifier =
             Modifier.fillMaxWidth()
@@ -678,6 +748,10 @@ private fun TrackRow(track: Track, subtitle: String, playing: Boolean, onClick: 
                 .padding(horizontal = 16.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        if (artwork != null) {
+            Cover(bitmap = artwork, size = 40.dp)
+            Spacer(modifier = Modifier.width(12.dp))
+        }
         RowContent(title = track.title, subtitle = subtitle)
     }
 }
@@ -738,16 +812,16 @@ private fun TransportBar(
             )
 
             IconButton(onClick = onPrevious, enabled = current != null) {
-                Text(text = "\u23EE", style = MaterialTheme.typography.titleMedium)
+                Icon(imageVector = AuxioIcons.SkipPrevious, contentDescription = "Previous")
             }
             IconButton(onClick = onTogglePause, enabled = current != null) {
-                Text(
-                    text = if (paused) "\u25B6" else "\u23F8",
-                    style = MaterialTheme.typography.titleLarge,
+                Icon(
+                    imageVector = if (paused) AuxioIcons.PlayArrow else AuxioIcons.Pause,
+                    contentDescription = if (paused) "Play" else "Pause",
                 )
             }
             IconButton(onClick = onNext, enabled = current != null) {
-                Text(text = "\u23ED", style = MaterialTheme.typography.titleMedium)
+                Icon(imageVector = AuxioIcons.SkipNext, contentDescription = "Next")
             }
 
             Spacer(modifier = Modifier.width(8.dp))
@@ -770,12 +844,15 @@ private fun TransportBar(
                 Slider(
                     value = (volume / 100.0).toFloat(),
                     onValueChange = { onVolume(it.toDouble() * 100.0) },
-                    modifier = Modifier.width(110.dp).padding(start = 8.dp),
+                    modifier = Modifier.width(100.dp).padding(start = 12.dp, end = 4.dp),
                 )
             }
         }
     }
 }
+
+private fun count(value: Int, singular: String): String =
+    "$value ${if (value == 1) singular else "${singular}s"}"
 
 private fun formatTime(seconds: Double): String {
     if (seconds <= 0.0 || !seconds.isFinite()) return "--:--"
