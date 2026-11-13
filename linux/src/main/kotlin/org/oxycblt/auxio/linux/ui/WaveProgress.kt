@@ -18,14 +18,20 @@
  
 package org.oxycblt.auxio.linux.ui
 
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.snap
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.LinearWavyProgressIndicator
+import androidx.compose.material3.WavyProgressIndicatorDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
@@ -34,10 +40,13 @@ import androidx.compose.ui.unit.dp
 /**
  * The transport's seek bar, drawn with Material 3's expressive wavy progress indicator.
  *
+ * Position is polled a few times a second, so the target is animated with Material's own
+ * [WavyProgressIndicatorDefaults.ProgressAnimationSpec] to turn those steps into continuous motion.
+ * A drag snaps instead: the wave should sit under the pointer, not chase it.
+ *
  * Progress indicators do not handle input, so the wave sits inside a taller touch target that turns
  * taps and horizontal drags into a seek fraction.
  */
-@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 internal fun WaveProgress(
     progress: Float,
@@ -46,6 +55,15 @@ internal fun WaveProgress(
     modifier: Modifier = Modifier,
 ) {
     val clamped = progress.coerceIn(0f, 1f)
+    var dragging by remember { mutableStateOf(false) }
+
+    val animated by
+        animateFloatAsState(
+            targetValue = clamped,
+            animationSpec =
+                if (dragging) snap() else WavyProgressIndicatorDefaults.ProgressAnimationSpec,
+            label = "waveProgress",
+        )
 
     Box(
         modifier =
@@ -59,12 +77,16 @@ internal fun WaveProgress(
                 }
                 .pointerInput(enabled) {
                     if (!enabled) return@pointerInput
-                    detectHorizontalDragGestures { change, _ ->
+                    detectHorizontalDragGestures(
+                        onDragStart = { dragging = true },
+                        onDragEnd = { dragging = false },
+                        onDragCancel = { dragging = false },
+                    ) { change, _ ->
                         onSeek((change.position.x / size.width).coerceIn(0f, 1f))
                     }
                 },
         contentAlignment = Alignment.Center,
     ) {
-        LinearWavyProgressIndicator(progress = { clamped }, modifier = Modifier.fillMaxWidth())
+        LinearWavyProgressIndicator(progress = { animated }, modifier = Modifier.fillMaxWidth())
     }
 }
