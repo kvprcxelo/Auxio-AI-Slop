@@ -59,7 +59,7 @@ object LibraryScanner {
                 .flatMap { walk(it) }
                 .sortedBy { it.title.lowercase() }
 
-        return Library.build(songs)
+        return Library.build(songs, playlists = Playlists.load(roots, songs))
     }
 
     private fun walk(root: Path): List<Track> =
@@ -78,6 +78,7 @@ object LibraryScanner {
             title = tags?.title ?: path.nameWithoutExtension,
             artist = tags?.artist,
             album = tags?.album,
+            genre = tags?.genre,
             trackNumber = tags?.trackNumber,
             year = tags?.year,
             date = tags?.date,

@@ -29,6 +29,7 @@ data class Tags(
     val year: Int? = null,
     /** Raw date tag, which may include month and day ("2024-05-03"). */
     val date: String? = null,
+    val genre: String? = null,
     val durationSeconds: Int? = null,
 )
 
@@ -64,7 +65,8 @@ internal object NativeTags {
             trackNumber = field(3)?.toIntOrNull(),
             year = field(4)?.toIntOrNull(),
             date = field(5),
-            durationSeconds = field(6)?.toIntOrNull(),
+            genre = field(6),
+            durationSeconds = field(7)?.toIntOrNull(),
         )
     }
 

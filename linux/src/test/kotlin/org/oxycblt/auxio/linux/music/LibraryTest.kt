@@ -35,12 +35,14 @@ class LibraryTest {
         duration: Double? = null,
         folder: String = "music",
         date: String? = null,
+        genre: String? = null,
     ) =
         Track(
             path = Path("/$folder/$name"),
             title = title,
             artist = artist,
             album = album,
+            genre = genre,
             trackNumber = trackNumber,
             year = year,
             date = date,
@@ -135,6 +137,24 @@ class LibraryTest {
             listOf("*Zebra", "Apple"),
             Library.build(songs, ignoreLeadingPunctuation = false).songs.map { it.title },
         )
+    }
+
+    @Test
+    fun `groups genres case-insensitively and splits them like artists`() {
+        val library =
+            Library.build(
+                listOf(
+                    track("a.flac", "One", "Artist", "Album", genre = "Rock; rock"),
+                    track("b.flac", "Two", "Artist", "Album", genre = "ROCK"),
+                    track("c.flac", "Three", "Artist", "Album"),
+                ),
+                separators = setOf(';'),
+            )
+
+        val genre = library.genres.single()
+        assertEquals("ROCK", genre.name)
+        // The duplicate genre inside the first tag is dropped, and the untagged song is left out.
+        assertEquals(listOf("One", "Two"), genre.tracks.map { it.title })
     }
 
     @Test

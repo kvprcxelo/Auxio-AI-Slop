@@ -43,29 +43,26 @@ Replace these later...
 
 ## Features
 
-Change Android-only features of upstream later...
+The Linux port is what this repository builds and releases. Its feature set is still growing; see
+[linux/README.md](linux/README.md) for the current state and limitations.
 
-- Playback based on [Media3 ExoPlayer](https://developer.android.com/guide/topics/media/exoplayer)
-- Snappy UI derived from the latest Material Design guidelines
-- Opinionated UX that prioritizes ease of use over edge cases
-- Customizable behavior
-- Support for disc numbers, multiple artists, release types,
-precise/original dates, sort tags, and more
-- Advanced artist system that unifies artists and album artists
-- SD Card-aware folder management
-- Reliable playlisting functionality
-- Playback state persistence
-- Android Auto support
-- Automatic gapless playback
-- Full ReplayGain support (On MP3, FLAC, OGG, OPUS, and MP4 files)
-- External equalizer support (ex. Wavelet)
-- Edge-to-edge
-- Embedded covers support
-- Search functionality
-- Headset autoplay
-- Stylish widgets that automatically adapt to their size
-- Completely private and offline
-- No rounded album covers (if you want them)
+- Local playback through **libmpv**, with gapless hand-off between tracks in a queue
+- Library scanning of your music folders, reading tags through **taglib** (the same build the
+  Android app uses)
+- Browsing by **songs, albums, artists, genres and playlists** (`.m3u`/`.m3u8` files next to your
+  music)
+- Artist pages with a seeded collage of their album covers, plus their albums and songs
+- Queue with previous/next, automatic advance, shuffle and repeat off/all/one
+- Material 3 UI, including the expressive wavy seek bar, which flattens while paused
+- Cover art from embedded pictures or `cover.jpg`/`folder.jpg` in the track's folder
+- Search across songs, albums, artists, genres and playlists
+- Settings for metadata separators, album date patterns, punctuation-aware sorting and the artist
+  collage seed
+- Completely private and offline: no accounts, no telemetry, no network access
+
+The Android app from upstream keeps its own feature list (**Media3/ExoPlayer**, Android Auto,
+widgets, ReplayGain, equalizer support); those are Android-only and are not part of the desktop
+build.
 
 ## Donate
 
@@ -73,16 +70,48 @@ You can support the creator of Auxio through [OxygenCobalt's Github Sponsors pag
 
 ## Dependencies
 
-Add dependencies later...
+Building and running the Linux port needs:
+
+- **JDK 21** (the desktop build targets Java 21)
+- **libmpv** at runtime — `libmpv2` on Debian/Ubuntu, `mpv-libs` on Fedora, `mpv` on Arch
+- **cmake** and **ninja** to build the small JNI tag reader against taglib
+- **taglib 2.x**, built from the `musikr` submodule by the packaging script
+- **appimagetool**, only for packaging the AppImage (the script downloads it if missing)
+
+Kotlin dependencies are resolved by Gradle: Compose Multiplatform (Desktop), the Material 3 alpha
+line for the expressive components, JNA for libmpv and kotlinx-coroutines.
+
+Building the Android app additionally needs the Android SDK and NDK; the Linux build is a separate
+Gradle project under `linux/` and does not touch them.
 
 ## Building
 
-We ask that you have these tools to build our app:
-- Add build deps here...
--
--
+Clone with submodules, then build taglib once before the desktop module:
 
-Write the build steps later...
+```sh
+git clone --recursive https://github.com/kvprcxelo/Auxio-AI-Slop.git
+cd Auxio-AI-Slop
+./linux/packaging/build-taglib.sh          # initialises submodules, builds taglib for x86_64
+cd linux
+JAVA_HOME=/path/to/jdk-21 ../gradlew build  # compiles, builds the native reader, runs tests
+```
+
+Run it against a folder:
+
+```sh
+cd linux
+JAVA_HOME=/path/to/jdk-21 ../gradlew run --args="$HOME/Music"
+```
+
+Build the AppImage:
+
+```sh
+./linux/packaging/build-appimage.sh
+# -> linux/dist/auxio-<version>-x86_64.AppImage
+```
+
+The AppImage bundles the JVM but not libmpv, so the target machine needs libmpv installed.
+Fuller instructions, including logs and the settings file, are in [linux/README.md](linux/README.md).
 
 ## License
 

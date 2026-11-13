@@ -18,20 +18,18 @@
  
 package org.oxycblt.auxio.linux.ui
 
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.snap
-import androidx.compose.foundation.background
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
-import androidx.compose.foundation.layout.fillMaxHeight
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.offset
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.LinearWavyProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.WavyProgressIndicatorDefaults
 import androidx.compose.runtime.Composable
@@ -39,24 +37,34 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import kotlin.math.PI
+import kotlin.math.sin
 
 /**
- * The transport's seek bar: Material 3's expressive wavy progress indicator with a thumb.
+ * The transport's seek bar: a rounded track, a wave over the played part, and a thumb.
  *
- * Position is polled a few times a second, so the target is animated with Material's own
+ * Everything is drawn from a single progress value. Material's wavy progress indicator was tried
+ * first, but its own active-track mapping and wave-travel animation drifted away from a separate
+ * thumb, most visibly near the end of a track, so the shape is drawn here instead: the wave ends
+ * exactly where the thumb is centred at any progress.
+ *
+ * Position is polled a few times a second, so the target is eased with Material's
  * [WavyProgressIndicatorDefaults.ProgressAnimationSpec] to turn those steps into continuous motion.
- * A drag snaps instead: the wave should sit under the pointer, not chase it.
+ * Paused, or while dragging, it snaps instead: a paused bar must not keep gliding after the wave
+ * has already flattened, and a dragged one belongs under the pointer. Paused also means zero
+ * amplitude, so the wave becomes a plain line.
  *
- * The indicator's default amplitude collapses the wave at the very start and the very end of a
- * track, which makes short progress look like a plain line, so a constant amplitude is used while
- * playing. Paused, the amplitude drops to zero and the bar becomes a straight line.
- *
- * Progress indicators do not handle input, so everything sits in a taller touch target that turns
+ * Progress bars do not handle input, so the whole thing sits in a taller touch target that turns
  * taps and horizontal drags into a seek fraction.
  */
 @Composable
@@ -66,23 +74,46 @@ internal fun WaveProgress(
     playing: Boolean,
     onSeek: (Float) -> Unit,
     modifier: Modifier = Modifier,
+    height: Dp = 40.dp,
 ) {
     val clamped = progress.coerceIn(0f, 1f)
     var dragging by remember { mutableStateOf(false) }
-    val thumbWidth = 4.dp
 
     val animated by
         animateFloatAsState(
             targetValue = clamped,
             animationSpec =
-                if (dragging) snap() else WavyProgressIndicatorDefaults.ProgressAnimationSpec,
+                if (playing && !dragging) WavyProgressIndicatorDefaults.ProgressAnimationSpec
+                else snap(),
             label = "waveProgress",
         )
 
-    BoxWithConstraints(
+    val phase =
+        if (playing) {
+            val transition = rememberInfiniteTransition(label = "wavePhase")
+            val value by
+                transition.animateFloat(
+                    initialValue = 0f,
+                    targetValue = (2 * PI).toFloat(),
+                    animationSpec =
+                        infiniteRepeatable(
+                            animation = tween(durationMillis = 2600, easing = LinearEasing),
+                            repeatMode = RepeatMode.Restart,
+                        ),
+                    label = "phase",
+                )
+            value
+        } else {
+            0f
+        }
+
+    val accent = MaterialTheme.colorScheme.primary
+    val trackColor = MaterialTheme.colorScheme.outlineVariant
+
+    Canvas(
         modifier =
             modifier
-                .height(44.dp)
+                .height(height)
                 .pointerInput(enabled) {
                     if (!enabled) return@pointerInput
                     detectTapGestures { offset ->
@@ -98,33 +129,62 @@ internal fun WaveProgress(
                     ) { change, _ ->
                         onSeek((change.position.x / size.width).coerceIn(0f, 1f))
                     }
-                },
-        contentAlignment = Alignment.Center,
+                }
     ) {
-        LinearWavyProgressIndicator(
-            progress = { animated },
-            modifier = Modifier.fillMaxWidth(),
-            // The thumb marks the position, so the track's stop dot would just be a second, smaller
-            // marker next to it.
-            stopSize = 0.dp,
-            // Paused, the wave collapses back into a plain line rather than freezing mid-wave.
-            amplitude = { if (playing) 1f else 0f },
-            wavelength = WavyProgressIndicatorDefaults.LinearDeterminateWavelength,
-            waveSpeed =
-                if (playing) WavyProgressIndicatorDefaults.LinearDeterminateWavelength else 0.dp,
+        val centerY = size.height / 2f
+        val played = (size.width * animated).coerceIn(0f, size.width)
+        val amplitude = if (playing) size.height / 3.2f else 0f
+        val wavelength = 64.dp.toPx()
+        val thumbWidth = 4.dp.toPx()
+        val thumbHeight = size.height * 0.62f
+
+        drawLine(
+            color = trackColor,
+            start = Offset(0f, centerY),
+            end = Offset(size.width, centerY),
+            strokeWidth = 2.dp.toPx(),
+            cap = StrokeCap.Round,
         )
 
+        if (played > 0f) {
+            fun waveY(x: Float): Float =
+                centerY + amplitude * sin(x / wavelength * 2f * PI.toFloat() + phase)
+
+            val line = Path().apply { moveTo(0f, waveY(0f)) }
+            var x = 0f
+            while (x < played) {
+                x = minOf(x + 2f, played)
+                line.lineTo(x, waveY(x))
+            }
+
+            if (amplitude > 0f) {
+                val filled =
+                    Path().apply {
+                        addPath(line)
+                        lineTo(played, centerY + amplitude)
+                        lineTo(0f, centerY + amplitude)
+                        close()
+                    }
+                drawPath(filled, accent.copy(alpha = 0.25f))
+            }
+
+            drawPath(
+                path = line,
+                color = accent,
+                style = Stroke(width = 3.dp.toPx(), cap = StrokeCap.Round),
+            )
+        }
+
         if (enabled) {
-            Box(
-                modifier =
-                    // Anchored to the start: with the box's centre alignment an offset would be
-                    // measured from the centred position and run off the right edge.
-                    Modifier.align(Alignment.CenterStart)
-                        .offset(x = (maxWidth - thumbWidth) * animated)
-                        .width(thumbWidth)
-                        .fillMaxHeight(0.64f)
-                        .clip(RoundedCornerShape(thumbWidth / 2))
-                        .background(MaterialTheme.colorScheme.primary)
+            drawRoundRect(
+                color = accent,
+                topLeft =
+                    Offset(
+                        x = (played - thumbWidth / 2f).coerceIn(0f, size.width - thumbWidth),
+                        y = centerY - thumbHeight / 2f,
+                    ),
+                size = Size(thumbWidth, thumbHeight),
+                cornerRadius = CornerRadius(thumbWidth / 2f),
             )
         }
     }

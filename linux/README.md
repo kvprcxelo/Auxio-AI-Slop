@@ -6,8 +6,9 @@ other's toolchain: the Android build needs the SDK and NDK, this one needs a JDK
 
 ## Status
 
-It scans folders, reads tags through taglib, and browses the result as **songs, albums and
-artists**, each with a detail view. Playing a song fills a queue from the list you started it in,
+It scans folders, reads tags through taglib, and browses the result as **songs, albums, artists,
+genres and playlists**, each with a detail view. Playlists are `.m3u`/`.m3u8` files found next to
+your music. Playing a song fills a queue from the list you started it in,
 with previous/next, automatic advance when a track ends, **shuffle** and **repeat all / repeat
 one**. The progress bar is Material 3's expressive wavy progress indicator with a thumb, inside a
 taller touch target so it still seeks on click or drag; the wave freezes when playback pauses.

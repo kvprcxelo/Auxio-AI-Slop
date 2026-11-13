@@ -48,8 +48,8 @@ namespace {
 // taglib 2.x trims Tag to title/artist/album/track/year; album artist and disc only live on the
 // format-specific tag classes, so they are not read yet.
 //
-// Fields: title, artist, album, track, year, date, duration.
-constexpr int FIELD_COUNT = 7;
+// Fields: title, artist, album, track, year, date, genre, duration.
+constexpr int FIELD_COUNT = 8;
 
 std::string toUtf8(const TagLib::String &value) {
     return value.isEmpty() ? std::string() : value.to8Bit(true);
@@ -170,6 +170,7 @@ Java_org_oxycblt_auxio_linux_music_NativeTags_readNative(JNIEnv *env, jclass, js
             if (tag->year() > 0) {
                 fields[4] = std::to_string(tag->year());
             }
+            fields[6] = toUtf8(tag->genre());
         }
 
         // The raw date tag keeps month/day where the format has them; Tag::year() only has the
@@ -187,7 +188,7 @@ Java_org_oxycblt_auxio_linux_music_NativeTags_readNative(JNIEnv *env, jclass, js
 
         if (const TagLib::AudioProperties *properties = file.audioProperties()) {
             if (properties->lengthInSeconds() > 0) {
-                fields[6] = std::to_string(properties->lengthInSeconds());
+                fields[7] = std::to_string(properties->lengthInSeconds());
             }
         }
     } catch (...) {

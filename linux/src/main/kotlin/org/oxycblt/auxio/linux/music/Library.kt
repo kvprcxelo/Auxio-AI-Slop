@@ -26,6 +26,7 @@ data class Track(
     val title: String,
     val artist: String? = null,
     val album: String? = null,
+    val genre: String? = null,
     val trackNumber: Int? = null,
     val year: Int? = null,
     /** Raw date tag, kept verbatim so the settings can decide how to render it. */
@@ -52,11 +53,16 @@ data class Album(
 /** Songs sharing an artist, with the albums they appear on. */
 data class Artist(val name: String, val albums: List<Album>, val tracks: List<Track>)
 
-/** The whole library, in the three shapes Auxio presents. */
+/** Songs sharing a genre tag. */
+data class Genre(val name: String, val tracks: List<Track>)
+
+/** The whole library, in the shapes Auxio presents. */
 data class MusicLibrary(
     val songs: List<Track>,
     val albums: List<Album>,
     val artists: List<Artist>,
+    val genres: List<Genre> = emptyList(),
+    val playlists: List<Playlist> = emptyList(),
 ) {
     companion object {
         val EMPTY = MusicLibrary(emptyList(), emptyList(), emptyList())
@@ -83,6 +89,7 @@ object Library {
         songs: List<Track>,
         separators: Set<Char> = emptySet(),
         ignoreLeadingPunctuation: Boolean = false,
+        playlists: List<Playlist> = emptyList(),
     ): MusicLibrary {
         val normalized = normalizeArtists(songs, separators)
 
@@ -132,9 +139,36 @@ object Library {
                 }
                 .sortedBy { sortKey(it.name, ignoreLeadingPunctuation) }
 
+        val genres =
+            normalized
+                .flatMap { track -> genreNames(track, separators).map { name -> name to track } }
+                .groupBy { it.first.lowercase() }
+                .map { (_, entries) ->
+                    Genre(
+                        name = displayName(entries.map { it.first }),
+                        tracks =
+                            entries
+                                .map { it.second }
+                                .distinctBy { it.id }
+                                .sortedWith(
+                                    compareBy(
+                                        { sortKey(it.album ?: "", ignoreLeadingPunctuation) },
+                                        { it.trackNumber ?: 0 },
+                                    )
+                                ),
+                    )
+                }
+                .sortedBy { sortKey(it.name, ignoreLeadingPunctuation) }
+
         val sortedSongs = normalized.sortedBy { sortKey(it.title, ignoreLeadingPunctuation) }
 
-        return MusicLibrary(songs = sortedSongs, albums = albums, artists = artists)
+        return MusicLibrary(
+            songs = sortedSongs,
+            albums = albums,
+            artists = artists,
+            genres = genres,
+            playlists = playlists,
+        )
     }
 
     /**
@@ -187,6 +221,14 @@ object Library {
             .map { it.trim() }
             .filter { it.isNotEmpty() }
             .ifEmpty { listOf(UNKNOWN_ARTIST) }
+    }
+
+    /** Genre names for a track, split on the configured separators like artists are. */
+    internal fun genreNames(track: Track, separators: Set<Char>): List<String> {
+        val raw = track.genre?.takeIf { it.isNotBlank() } ?: return emptyList()
+        if (separators.isEmpty()) return listOf(raw.trim())
+
+        return raw.split(*separators.toCharArray()).map { it.trim() }.filter { it.isNotEmpty() }
     }
 
     /** Case-insensitive sort key, optionally past leading non-alphanumeric decoration. */

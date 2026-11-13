@@ -41,6 +41,7 @@ import org.junit.jupiter.api.Assumptions.assumeTrue
 import org.oxycblt.auxio.linux.music.Album
 import org.oxycblt.auxio.linux.music.Artist
 import org.oxycblt.auxio.linux.music.Library
+import org.oxycblt.auxio.linux.music.Playlist
 import org.oxycblt.auxio.linux.music.Track
 import org.oxycblt.auxio.linux.playback.Mpv
 import org.oxycblt.auxio.linux.playback.MpvPlayer
@@ -66,6 +67,7 @@ class UiRenderTest {
                     title = "Track ${index + 1}",
                     artist = "Test Artist",
                     album = "Test Album",
+                    genre = if (index < 4) "Rock" else "Jazz",
                     trackNumber = index + 1,
                     year = 2024,
                     durationSeconds = 120.0 + index,
@@ -79,7 +81,11 @@ class UiRenderTest {
                 ImageComposeScene(width = 1100, height = 720) {
                     AuxioApp(
                         player = player,
-                        library = Library.build(tracks),
+                        library =
+                            Library.build(
+                                tracks,
+                                playlists = listOf(Playlist("Mix", tracks)),
+                            ),
                         roots = listOf(fixture.parent),
                         initialSeparators = ";/",
                     )
@@ -99,11 +105,14 @@ class UiRenderTest {
                 fun click(x: Float, y: Float) {
                     scene.sendPointerEvent(PointerEventType.Press, Offset(x, y))
                     scene.sendPointerEvent(PointerEventType.Release, Offset(x, y))
+                    // Render the resulting state, or the next click is dispatched against the
+                    // previous screen's layout.
+                    scene.render()
                 }
 
                 shot("songs")
 
-                click(553f, 122f)
+                click(330f, 122f)
                 shot("albums")
 
                 click(300f, 170f)
@@ -112,11 +121,22 @@ class UiRenderTest {
                 click(60f, 141f)
                 shot("back")
 
-                click(921f, 122f)
+                click(550f, 122f)
                 shot("artists")
 
                 click(300f, 170f)
                 shot("artist")
+
+                click(32f, 124f)
+                click(810f, 122f)
+                shot("genres")
+
+                click(300f, 170f)
+                shot("genre-detail")
+
+                click(60f, 141f)
+                click(990f, 122f)
+                shot("playlists")
 
                 click(1060f, 52f)
                 shot("settings")
@@ -126,8 +146,8 @@ class UiRenderTest {
 
             val rendered = Files.list(output).use { it.toList() }
             assertTrue(
-                rendered.size == 7,
-                "expected seven frames, got ${rendered.map { it.fileName }}",
+                rendered.size == 10,
+                "expected ten frames, got ${rendered.map { it.fileName }}",
             )
             println("RENDERED $output")
         } finally {

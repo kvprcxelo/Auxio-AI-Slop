@@ -87,9 +87,11 @@ import org.oxycblt.auxio.linux.music.Album
 import org.oxycblt.auxio.linux.music.Artist
 import org.oxycblt.auxio.linux.music.Artwork
 import org.oxycblt.auxio.linux.music.Dates
+import org.oxycblt.auxio.linux.music.Genre
 import org.oxycblt.auxio.linux.music.Library
 import org.oxycblt.auxio.linux.music.LibraryScanner
 import org.oxycblt.auxio.linux.music.MusicLibrary
+import org.oxycblt.auxio.linux.music.Playlist
 import org.oxycblt.auxio.linux.music.Track
 import org.oxycblt.auxio.linux.playback.DebugLog
 import org.oxycblt.auxio.linux.playback.LoopMode
@@ -100,6 +102,8 @@ private enum class Section(val label: String) {
     Songs("Songs"),
     Albums("Albums"),
     Artists("Artists"),
+    Genres("Genres"),
+    Playlists("Playlists"),
 }
 
 /** A short-lived line of feedback: scan results, playback failures. */
@@ -113,6 +117,7 @@ fun AuxioApp(
     initialSeparators: String = Settings.DEFAULT_SEPARATORS,
 ) {
     var songs by remember { mutableStateOf(library.songs) }
+    var playlists by remember { mutableStateOf(library.playlists) }
     var separators by remember { mutableStateOf(initialSeparators) }
     var dateFormat by remember { mutableStateOf(Settings.dateFormat()) }
     var ignorePunctuation by remember { mutableStateOf(Settings.ignoresLeadingPunctuation()) }
@@ -120,6 +125,8 @@ fun AuxioApp(
     var section by remember { mutableStateOf(Section.Songs) }
     var openAlbum by remember { mutableStateOf<Album?>(null) }
     var openArtist by remember { mutableStateOf<Artist?>(null) }
+    var openGenre by remember { mutableStateOf<Genre?>(null) }
+    var openPlaylist by remember { mutableStateOf<Playlist?>(null) }
     var showSettings by remember { mutableStateOf(false) }
     var scanning by remember { mutableStateOf(false) }
     var shuffle by remember { mutableStateOf(false) }
@@ -134,8 +141,8 @@ fun AuxioApp(
 
     val separatorChars = remember(separators) { separators.toSet() }
     val currentLibrary =
-        remember(songs, separatorChars, ignorePunctuation) {
-            Library.build(songs, separatorChars, ignorePunctuation)
+        remember(songs, separatorChars, ignorePunctuation, playlists) {
+            Library.build(songs, separatorChars, ignorePunctuation, playlists)
         }
     val queue = remember { PlayQueue(player) }
     val scope = rememberCoroutineScope()
@@ -183,12 +190,12 @@ fun AuxioApp(
         scanning = true
         notify("Scanning ${roots.joinToString()}…")
         scope.launch {
-            val result =
-                withContext(Dispatchers.IO) { runCatching { LibraryScanner.scan(roots).songs } }
+            val result = withContext(Dispatchers.IO) { runCatching { LibraryScanner.scan(roots) } }
             result
                 .onSuccess { found ->
-                    songs = found
-                    notify("Found ${found.size} songs")
+                    songs = found.songs
+                    playlists = found.playlists
+                    notify("Found ${found.songs.size} songs")
                 }
                 .onFailure { notify("Scan failed: ${it.message}", error = true) }
             scanning = false
@@ -231,6 +238,18 @@ fun AuxioApp(
         remember(currentLibrary, query) {
             if (query.isBlank()) currentLibrary.artists
             else currentLibrary.artists.filter { it.name.contains(query, ignoreCase = true) }
+        }
+
+    val visibleGenres =
+        remember(currentLibrary, query) {
+            if (query.isBlank()) currentLibrary.genres
+            else currentLibrary.genres.filter { it.name.contains(query, ignoreCase = true) }
+        }
+
+    val visiblePlaylists =
+        remember(currentLibrary, query) {
+            if (query.isBlank()) currentLibrary.playlists
+            else currentLibrary.playlists.filter { it.name.contains(query, ignoreCase = true) }
         }
 
     MaterialTheme(colorScheme = darkColorScheme()) {
@@ -320,6 +339,8 @@ fun AuxioApp(
                     else -> {
                         val album = openAlbum
                         val artist = openArtist
+                        val genre = openGenre
+                        val playlist = openPlaylist
                         when {
                             album != null ->
                                 AlbumDetail(
@@ -333,6 +354,7 @@ fun AuxioApp(
                             artist != null ->
                                 ArtistDetail(
                                     artist = artist,
+                                    current = current,
                                     collageSeed = collageSeed,
                                     dateFormat = dateFormat,
                                     onBack = { openArtist = null },
@@ -343,6 +365,26 @@ fun AuxioApp(
                                         queue.setShuffle(true)
                                         play(artist.tracks, 0)
                                     },
+                                    modifier = contentModifier,
+                                )
+                            genre != null ->
+                                TrackCollectionDetail(
+                                    title = genre.name,
+                                    subtitle = count(genre.tracks.size, "song"),
+                                    tracks = genre.tracks,
+                                    current = current,
+                                    onBack = { openGenre = null },
+                                    onPlay = { index -> play(genre.tracks, index) },
+                                    modifier = contentModifier,
+                                )
+                            playlist != null ->
+                                TrackCollectionDetail(
+                                    title = playlist.name,
+                                    subtitle = count(playlist.tracks.size, "song"),
+                                    tracks = playlist.tracks,
+                                    current = current,
+                                    onBack = { openPlaylist = null },
+                                    onPlay = { index -> play(playlist.tracks, index) },
                                     modifier = contentModifier,
                                 )
                             else -> {
@@ -377,6 +419,18 @@ fun AuxioApp(
                                                 artists = visibleArtists,
                                                 collageSeed = collageSeed,
                                                 onOpen = { openArtist = it },
+                                                modifier = Modifier.fillMaxSize(),
+                                            )
+                                        Section.Genres ->
+                                            GenreList(
+                                                genres = visibleGenres,
+                                                onOpen = { openGenre = it },
+                                                modifier = Modifier.fillMaxSize(),
+                                            )
+                                        Section.Playlists ->
+                                            PlaylistList(
+                                                playlists = visiblePlaylists,
+                                                onOpen = { openPlaylist = it },
                                                 modifier = Modifier.fillMaxSize(),
                                             )
                                     }
@@ -709,6 +763,7 @@ private fun AlbumDetail(
 @Composable
 private fun ArtistDetail(
     artist: Artist,
+    current: Track?,
     collageSeed: String,
     dateFormat: String,
     onBack: () -> Unit,
@@ -806,6 +861,24 @@ private fun ArtistDetail(
                         Dates.format(album.date ?: album.year?.toString(), dateFormat).orEmpty(),
                     artwork = rememberArtwork(album.tracks),
                     onClick = { onOpenAlbum(album) },
+                )
+            }
+
+            item {
+                Text(
+                    text = "Songs",
+                    style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                )
+            }
+
+            itemsIndexed(artist.tracks) { index, track ->
+                TrackRow(
+                    track = track,
+                    subtitle = track.album.orEmpty(),
+                    playing = current?.id == track.id,
+                    artwork = rememberArtwork(listOf(track)),
+                    onClick = { onPlay(index) },
                 )
             }
         }
@@ -1130,7 +1203,8 @@ private fun TransportBar(
                 style = MaterialTheme.typography.bodyMedium,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.width(150.dp),
+                // The title takes whatever the controls leave, so long names are readable.
+                modifier = Modifier.weight(1f).padding(end = 8.dp),
             )
 
             IconButton(onClick = onCycleLoop) {
@@ -1177,7 +1251,8 @@ private fun TransportBar(
                 enabled = duration > 0.0,
                 playing = current != null && !paused,
                 onSeek = { fraction -> onSeek(fraction.toDouble()) },
-                modifier = Modifier.weight(1f).padding(horizontal = 12.dp),
+                // A fixed width keeps the thumb from racing across the window.
+                modifier = Modifier.width(280.dp).padding(horizontal = 8.dp),
             )
             Text(text = formatTime(duration), style = MaterialTheme.typography.labelSmall)
 
@@ -1191,6 +1266,76 @@ private fun TransportBar(
                     value = (volume / 100.0).toFloat(),
                     onValueChange = { onVolume(it.toDouble() * 100.0) },
                     modifier = Modifier.width(100.dp).padding(start = 12.dp, end = 4.dp),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun GenreList(
+    genres: List<Genre>,
+    onOpen: (Genre) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    LazyColumn(modifier = modifier) {
+        items(genres) { genre ->
+            EntryRow(
+                title = genre.name,
+                subtitle = count(genre.tracks.size, "song"),
+                artwork = rememberArtwork(genre.tracks),
+                onClick = { onOpen(genre) },
+            )
+        }
+    }
+}
+
+@Composable
+private fun PlaylistList(
+    playlists: List<Playlist>,
+    onOpen: (Playlist) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    LazyColumn(modifier = modifier) {
+        items(playlists) { playlist ->
+            EntryRow(
+                title = playlist.name,
+                subtitle = count(playlist.tracks.size, "song"),
+                artwork = rememberArtwork(playlist.tracks),
+                onClick = { onOpen(playlist) },
+            )
+        }
+    }
+}
+
+/** Genre and playlist pages: a cover from the collection, then its songs. */
+@Composable
+private fun TrackCollectionDetail(
+    title: String,
+    subtitle: String,
+    tracks: List<Track>,
+    current: Track?,
+    onBack: () -> Unit,
+    onPlay: (Int) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(modifier = modifier) {
+        DetailHeader(
+            title = title,
+            subtitle = subtitle,
+            cover = rememberArtwork(tracks),
+            reserveCover = true,
+            onBack = onBack,
+        )
+
+        LazyColumn(modifier = Modifier.fillMaxSize()) {
+            itemsIndexed(tracks) { index, track ->
+                TrackRow(
+                    track = track,
+                    subtitle = listOfNotNull(track.artist, track.album).joinToString(" · "),
+                    playing = current?.id == track.id,
+                    artwork = rememberArtwork(listOf(track)),
+                    onClick = { onPlay(index) },
                 )
             }
         }
