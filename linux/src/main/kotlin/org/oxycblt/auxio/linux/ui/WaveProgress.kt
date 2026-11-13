@@ -20,12 +20,19 @@ package org.oxycblt.auxio.linux.ui
 
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.snap
+import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.LinearWavyProgressIndicator
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.WavyProgressIndicatorDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -34,28 +41,35 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
 
 /**
- * The transport's seek bar, drawn with Material 3's expressive wavy progress indicator.
+ * The transport's seek bar: Material 3's expressive wavy progress indicator with a thumb.
  *
  * Position is polled a few times a second, so the target is animated with Material's own
  * [WavyProgressIndicatorDefaults.ProgressAnimationSpec] to turn those steps into continuous motion.
  * A drag snaps instead: the wave should sit under the pointer, not chase it.
  *
- * Progress indicators do not handle input, so the wave sits inside a taller touch target that turns
+ * The indicator's default amplitude collapses the wave at the very start and the very end of a
+ * track, which makes short progress look like a plain line, so a constant amplitude is used. The
+ * wave only travels while [playing]; pausing freezes it in place.
+ *
+ * Progress indicators do not handle input, so everything sits in a taller touch target that turns
  * taps and horizontal drags into a seek fraction.
  */
 @Composable
 internal fun WaveProgress(
     progress: Float,
     enabled: Boolean,
+    playing: Boolean,
     onSeek: (Float) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val clamped = progress.coerceIn(0f, 1f)
     var dragging by remember { mutableStateOf(false) }
+    val thumbWidth = 4.dp
 
     val animated by
         animateFloatAsState(
@@ -65,7 +79,7 @@ internal fun WaveProgress(
             label = "waveProgress",
         )
 
-    Box(
+    BoxWithConstraints(
         modifier =
             modifier
                 .height(44.dp)
@@ -87,6 +101,30 @@ internal fun WaveProgress(
                 },
         contentAlignment = Alignment.Center,
     ) {
-        LinearWavyProgressIndicator(progress = { animated }, modifier = Modifier.fillMaxWidth())
+        LinearWavyProgressIndicator(
+            progress = { animated },
+            modifier = Modifier.fillMaxWidth(),
+            // The thumb marks the position, so the track's stop dot would just be a second, smaller
+            // marker next to it.
+            stopSize = 0.dp,
+            amplitude = { 1f },
+            wavelength = WavyProgressIndicatorDefaults.LinearDeterminateWavelength,
+            waveSpeed =
+                if (playing) WavyProgressIndicatorDefaults.LinearDeterminateWavelength else 0.dp,
+        )
+
+        if (enabled) {
+            Box(
+                modifier =
+                    // Anchored to the start: with the box's centre alignment an offset would be
+                    // measured from the centred position and run off the right edge.
+                    Modifier.align(Alignment.CenterStart)
+                        .offset(x = (maxWidth - thumbWidth) * animated)
+                        .width(thumbWidth)
+                        .fillMaxHeight(0.64f)
+                        .clip(RoundedCornerShape(thumbWidth / 2))
+                        .background(MaterialTheme.colorScheme.primary)
+            )
+        }
     }
 }

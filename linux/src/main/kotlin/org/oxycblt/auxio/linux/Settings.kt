@@ -37,6 +37,21 @@ object Settings {
     private const val SEPARATORS_KEY = "metadata.separators"
     private const val DATE_FORMAT_KEY = "metadata.dateFormat"
     private const val SORT_PUNCTUATION_KEY = "sorting.ignoreLeadingPunctuation"
+    private const val COLLAGE_SEED_KEY = "artists.collageSeed"
+
+    /** Date presets from before patterns existed, mapped to the equivalent token pattern. */
+    private val LEGACY_DATE_FORMATS =
+        mapOf(
+            "year" to "YYYY",
+            "iso" to "YYYY-MM-DD",
+            "d MMM yyyy" to "YYYY-MM-DD",
+            "MMM d, yyyy" to "YYYY-MM-DD",
+            "dd/MM/yyyy" to "DD/MM/YYYY",
+            "MM/dd/yyyy" to "MM/DD/YYYY",
+        )
+
+    /** Seed for the artist artwork collage; the same seed always gives the same arrangement. */
+    const val DEFAULT_COLLAGE_SEED = "auxio"
 
     private val file: Path by lazy {
         val base =
@@ -51,8 +66,14 @@ object Settings {
         put(SEPARATORS_KEY, value)
     }
 
-    /** One of [Dates.PRESETS]; the system locale's date format unless changed. */
-    fun dateFormat(): String = properties().getProperty(DATE_FORMAT_KEY) ?: Dates.SYSTEM
+    /** A [Dates] token pattern, or [Dates.SYSTEM] for the locale's short date. */
+    fun dateFormat(): String {
+        val stored = properties().getProperty(DATE_FORMAT_KEY) ?: return Dates.SYSTEM
+        // Earlier builds stored preset ids; rewrite those into patterns once.
+        val migrated = LEGACY_DATE_FORMATS[stored] ?: return stored
+        dateFormat(migrated)
+        return migrated
+    }
 
     fun dateFormat(value: String) {
         put(DATE_FORMAT_KEY, value)
@@ -64,6 +85,12 @@ object Settings {
 
     fun ignoresLeadingPunctuation(value: Boolean) {
         put(SORT_PUNCTUATION_KEY, value.toString())
+    }
+
+    fun collageSeed(): String = properties().getProperty(COLLAGE_SEED_KEY) ?: DEFAULT_COLLAGE_SEED
+
+    fun collageSeed(value: String) {
+        put(COLLAGE_SEED_KEY, value)
     }
 
     private fun put(key: String, value: String) {

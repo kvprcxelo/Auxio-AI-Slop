@@ -9,8 +9,9 @@ other's toolchain: the Android build needs the SDK and NDK, this one needs a JDK
 It scans folders, reads tags through taglib, and browses the result as **songs, albums and
 artists**, each with a detail view. Playing a song fills a queue from the list you started it in,
 with previous/next, automatic advance when a track ends, **shuffle** and **repeat all / repeat
-one**. The progress bar is Material 3's expressive wavy progress indicator, inside a taller touch
-target so it still seeks on click or drag. Cover art is shown for the current album, artist and track: the picture embedded in the file, or
+one**. The progress bar is Material 3's expressive wavy progress indicator with a thumb, inside a
+taller touch target so it still seeks on click or drag; the wave freezes when playback pauses.
+Cover art is shown for the current album, artist and track: the picture embedded in the file, or
 `cover.jpg`/`folder.jpg` (and similar names) from its folder. Artists are grouped
 case-insensitively, so "x" and "X" are one artist shown with whichever spelling occurs most, and
 repeated names inside one tag are dropped. Album dates are read from the date tag and shown in a
@@ -44,11 +45,14 @@ Settings live in `$XDG_CONFIG_HOME/auxio/settings.properties` (defaulting to
 - `metadata.separators` — any artist tag containing one of those characters is split into
   separate artists, so `A; B` lists under both. Albums keep their raw tag, so compilations stay
   one album.
-- `metadata.dateFormat` — one of `system` (the default), `year`, `iso`, `d MMM yyyy`,
-  `MMM d, yyyy`, `dd/MM/yyyy`, `MM/dd/yyyy`. Dates come from the album's date tag; a tag with only
-  a year keeps showing just the year.
+- `metadata.dateFormat` — a pattern of `YYYY`, `YY`, `MM` and `DD` tokens with anything else kept
+  literally (`YYYY-MM-DD`, `YYYYMMDD`, `DD/MM/YY`, …), or `system` (the default) for the locale's
+  short date. Dates come from the album's date tag; a tag with only a year keeps showing just the
+  year.
 - `sorting.ignoreLeadingPunctuation` — `true` (the default) sorts by the first letter or digit,
   so `*Song` and `(Song)` file under S.
+- `artists.collageSeed` — seeds the shuffle that arranges an artist's album covers into the
+  collage on artist rows and headers. The same seed always gives the same arrangement.
 
 Changes apply immediately.
 

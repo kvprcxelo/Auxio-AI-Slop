@@ -27,29 +27,43 @@ class DatesTest {
     private val locale = Locale.UK
 
     @Test
-    fun `formats a full date with the chosen preset`() {
-        assertEquals("2024-05-03", Dates.format("2024-05-03", "iso", locale))
-        assertEquals("3 May 2024", Dates.format("2024-05-03", "d MMM yyyy", locale))
-        assertEquals("May 3, 2024", Dates.format("2024-05-03", "MMM d, yyyy", locale))
-        assertEquals("03/05/2024", Dates.format("2024-05-03", "dd/MM/yyyy", locale))
-        assertEquals("05/03/2024", Dates.format("2024-05-03", "MM/dd/yyyy", locale))
-        assertEquals("2024", Dates.format("2024-05-03", Dates.YEAR_ONLY, locale))
+    fun `formats with a typed pattern`() {
+        assertEquals("2024-05-03", Dates.format("2024-05-03", "YYYY-MM-DD", locale))
+        assertEquals("20240503", Dates.format("2024-05-03", "YYYYMMDD", locale))
+        assertEquals("03/05/24", Dates.format("2024-05-03", "DD/MM/YY", locale))
+        assertEquals("2024", Dates.format("2024-05-03", "YYYY", locale))
     }
 
     @Test
     fun `keeps the year when the tag has no month or day`() {
-        assertEquals("2024", Dates.format("2024", "iso", locale))
-        assertEquals("2024", Dates.format("2024-05", "d MMM yyyy", locale))
+        assertEquals("2024", Dates.format("2024", "YYYY-MM-DD", locale))
+        assertEquals("2024", Dates.format("2024-05", "DD/MM/YYYY", locale))
     }
 
     @Test
     fun `shows unparseable dates verbatim`() {
-        assertEquals("sometime in spring", Dates.format("sometime in spring", "iso", locale))
+        assertEquals("sometime in spring", Dates.format("sometime in spring", "YYYY", locale))
     }
 
     @Test
     fun `treats slashes as separators`() {
-        assertEquals("2024-05-03", Dates.format("2024/05/03", "iso", locale))
+        assertEquals("2024-05-03", Dates.format("2024/05/03", "YYYY-MM-DD", locale))
+    }
+
+    @Test
+    fun `resolves the system setting to the locale short date`() {
+        assertEquals("DD/MM/YYYY", Dates.resolvePattern(Dates.SYSTEM, Locale.UK))
+        assertEquals("MM/DD/YY", Dates.resolvePattern(Dates.SYSTEM, Locale.US))
+        // A typed pattern wins over the locale.
+        assertEquals("YYYYMMDD", Dates.resolvePattern("YYYYMMDD", Locale.UK))
+        assertEquals("DD/MM/YYYY", Dates.resolvePattern("  ", Locale.UK))
+    }
+
+    @Test
+    fun `renders tokens and passes everything else through`() {
+        assertEquals("2024/05/03", Dates.render(2024, 5, 3, "YYYY/MM/DD"))
+        assertEquals("03 May-ish 24", Dates.render(2024, 5, 3, "DD May-ish YY"))
+        assertEquals("spring", Dates.render(2024, 5, 3, "spring"))
     }
 
     @Test

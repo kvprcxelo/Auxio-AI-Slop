@@ -31,12 +31,3 @@ If you do make a request, provide the following:
 
 If you have the knowledge, you can also implement the feature yourself and create a [Pull Request](https://github.com/kvprcxelo/Auxio-AI-Slop/pulls), but its recommended that **you create an issue beforehand to give the maintainer a heads up.**
 
-## Code Contributions
-If you have knowledge of Kotlin, feel free to to contribute to the project.
-- If you want to help out with an existing bug report, comment on the issue that you want to fix saying that you are going to try your hand at it.
-- If you want to add something, its recommended to open up an issue for what you want to change before you start working on it. That way it can be determined if the addition will be merged in the first place, and generally gives a heads-up overall.
-- Do not bring non-free software into the project, such as Binary Blobs.
-- Make sure you stick to the project's styling, which should be auto-formatted on every build.
-- Please ***FULLY TEST*** your changes before creating a PR. Untested code will not be merged.
-- Only **Kotlin** will be accepted, except for the case that a UI component must be vendored in the project.
-- Keep your branch up to date with this repository's `dev` branch and continue to maintain it after you create the PR. This makes it less of a hassle to merge.

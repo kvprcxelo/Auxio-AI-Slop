@@ -11,6 +11,21 @@ Auxio, and this fork, are local music players with fast, reliable UI/UX without 
 
 **This is a fork of the dev branch of Auxio; a fully AI-made port. Expect bugs.**
 
+## Bugs & Feature Requests
+
+Found a bug, a crash, or something that looks wrong? Want a feature added? Open an issue on the
+[Issues](https://github.com/kvprcxelo/Auxio-AI-Slop/issues) tab. A useful report has:
+
+- what you expected and what actually happened,
+- the steps that reproduce it,
+- the build you tried (the release tag or AppImage name),
+- your logs if you have them. On Linux, run the AppImage with
+  `AUXIO_LOG=~/auxio.log ./auxio-<version>-x86_64.AppImage` and attach `auxio.log` and
+  `auxio.log.mpv`; see [linux/README.md](linux/README.md#logs) for details.
+
+Feature requests go to the same place. Please describe the problem the feature solves, not just the
+feature, so it can be judged on its own.
+
 ## Screenshots
 
 Replace these later...

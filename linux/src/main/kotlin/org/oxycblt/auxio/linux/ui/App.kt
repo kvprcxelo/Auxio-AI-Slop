@@ -27,6 +27,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -35,9 +36,10 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -71,6 +73,7 @@ import androidx.compose.ui.unit.dp
 import java.io.ByteArrayInputStream
 import java.nio.file.Path
 import javax.imageio.ImageIO
+import kotlin.random.Random
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -109,6 +112,7 @@ fun AuxioApp(
     var separators by remember { mutableStateOf(initialSeparators) }
     var dateFormat by remember { mutableStateOf(Settings.dateFormat()) }
     var ignorePunctuation by remember { mutableStateOf(Settings.ignoresLeadingPunctuation()) }
+    var collageSeed by remember { mutableStateOf(Settings.collageSeed()) }
     var section by remember { mutableStateOf(Section.Songs) }
     var openAlbum by remember { mutableStateOf<Album?>(null) }
     var openArtist by remember { mutableStateOf<Artist?>(null) }
@@ -278,6 +282,7 @@ fun AuxioApp(
                             separators = separators,
                             dateFormat = dateFormat,
                             ignorePunctuation = ignorePunctuation,
+                            collageSeed = collageSeed,
                             scanning = scanning,
                             songCount = songs.size,
                             onSeparators = {
@@ -291,6 +296,10 @@ fun AuxioApp(
                             onIgnorePunctuation = {
                                 ignorePunctuation = it
                                 Settings.ignoresLeadingPunctuation(it)
+                            },
+                            onCollageSeed = {
+                                collageSeed = it
+                                Settings.collageSeed(it)
                             },
                             onRefresh = ::refresh,
                             onBack = { showSettings = false },
@@ -321,6 +330,7 @@ fun AuxioApp(
                                 ArtistDetail(
                                     artist = artist,
                                     current = current,
+                                    collageSeed = collageSeed,
                                     onBack = { openArtist = null },
                                     onOpenAlbum = { openAlbum = it },
                                     onPlay = { index -> play(artist.tracks, index) },
@@ -356,6 +366,7 @@ fun AuxioApp(
                                         Section.Artists ->
                                             ArtistList(
                                                 artists = visibleArtists,
+                                                collageSeed = collageSeed,
                                                 onOpen = { openArtist = it },
                                                 modifier = Modifier.fillMaxSize(),
                                             )
@@ -402,11 +413,13 @@ private fun SettingsPage(
     separators: String,
     dateFormat: String,
     ignorePunctuation: Boolean,
+    collageSeed: String,
     scanning: Boolean,
     songCount: Int,
     onSeparators: (String) -> Unit,
     onDateFormat: (String) -> Unit,
     onIgnorePunctuation: (Boolean) -> Unit,
+    onCollageSeed: (String) -> Unit,
     onRefresh: () -> Unit,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
@@ -414,7 +427,12 @@ private fun SettingsPage(
     Column(modifier = modifier) {
         DetailHeader(title = "Settings", subtitle = "$songCount songs", onBack = onBack)
 
-        Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+        Column(
+            modifier =
+                Modifier.fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 16.dp, vertical = 8.dp)
+        ) {
             Text(text = "Library", style = MaterialTheme.typography.titleMedium)
             Spacer(modifier = Modifier.size(8.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -472,20 +490,25 @@ private fun SettingsPage(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Spacer(modifier = Modifier.size(8.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Dates.PRESETS.forEach { preset ->
-                    FilterChip(
-                        selected = dateFormat == preset.id,
-                        onClick = { onDateFormat(preset.id) },
-                        label = { Text(preset.label) },
-                    )
-                }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                OutlinedTextField(
+                    value = Dates.resolvePattern(dateFormat),
+                    onValueChange = { typed ->
+                        onDateFormat(typed.trim().ifEmpty { Dates.SYSTEM })
+                    },
+                    singleLine = true,
+                    label = { Text("Pattern, for example DD/MM/YYYY") },
+                    modifier = Modifier.width(360.dp),
+                )
+                Spacer(modifier = Modifier.width(12.dp))
+                TextButton(onClick = { onDateFormat(Dates.SYSTEM) }) { Text("Use system format") }
             }
             Spacer(modifier = Modifier.size(8.dp))
             Text(
                 text =
-                    "Dates come from the album's date tag. \"System\" follows your locale's " +
-                        "short date format; a tag with only a year always shows the year.",
+                    "Tokens: YYYY (2024), YY (24), MM (05), DD (03). Anything else is kept " +
+                        "literally, so YYYYMMDD and DD.MM.YY both work. Dates come from the " +
+                        "album's date tag; a tag with only a year always shows the year.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.width(720.dp),
@@ -510,6 +533,36 @@ private fun SettingsPage(
                     )
                 }
             }
+
+            Spacer(modifier = Modifier.size(16.dp))
+            HorizontalDivider()
+            Spacer(modifier = Modifier.size(16.dp))
+
+            Text(text = "Advanced", style = MaterialTheme.typography.titleMedium)
+            Spacer(modifier = Modifier.size(8.dp))
+            Text(
+                text = "Artist artwork seed",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(modifier = Modifier.size(8.dp))
+            OutlinedTextField(
+                value = collageSeed,
+                onValueChange = onCollageSeed,
+                singleLine = true,
+                label = { Text("Seed") },
+                modifier = Modifier.width(360.dp),
+            )
+            Spacer(modifier = Modifier.size(8.dp))
+            Text(
+                text =
+                    "Artist rows and headers show a collage of the artist's album covers, " +
+                        "shuffled with this seed and the artist's name. The same seed always " +
+                        "gives the same arrangement; change it to reshuffle every artist.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.width(720.dp),
+            )
         }
     }
 }
@@ -556,19 +609,40 @@ private fun AlbumList(
 @Composable
 private fun ArtistList(
     artists: List<Artist>,
+    collageSeed: String,
     onOpen: (Artist) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     LazyColumn(modifier = modifier) {
         items(artists) { artist ->
-            EntryRow(
-                title = artist.name,
+            ArtistRow(
+                artist = artist,
+                collageSeed = collageSeed,
                 subtitle =
                     count(artist.albums.size, "album") + " · " + count(artist.tracks.size, "song"),
-                artwork = rememberArtwork(artist.tracks),
                 onClick = { onOpen(artist) },
             )
         }
+    }
+}
+
+@Composable
+private fun ArtistRow(
+    artist: Artist,
+    collageSeed: String,
+    subtitle: String,
+    onClick: () -> Unit,
+) {
+    Row(
+        modifier =
+            Modifier.fillMaxWidth()
+                .clickable(onClick = onClick)
+                .padding(horizontal = 16.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        ArtistCollage(artist = artist, seed = collageSeed, size = 40.dp)
+        Spacer(modifier = Modifier.width(12.dp))
+        RowContent(title = artist.name, subtitle = subtitle)
     }
 }
 
@@ -623,6 +697,7 @@ private fun AlbumDetail(
 private fun ArtistDetail(
     artist: Artist,
     current: Track?,
+    collageSeed: String,
     onBack: () -> Unit,
     onOpenAlbum: (Album) -> Unit,
     onPlay: (Int) -> Unit,
@@ -638,6 +713,7 @@ private fun ArtistDetail(
             cover = cover,
             reserveCover = true,
             onBack = onBack,
+            collage = { ArtistCollage(artist = artist, seed = collageSeed, size = 72.dp) },
         )
 
         LazyColumn(modifier = Modifier.fillMaxSize()) {
@@ -682,6 +758,7 @@ private fun DetailHeader(
     onBack: () -> Unit,
     cover: ImageBitmap? = null,
     reserveCover: Boolean = cover != null,
+    collage: (@Composable () -> Unit)? = null,
 ) {
     Row(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 8.dp),
@@ -693,7 +770,10 @@ private fun DetailHeader(
             Text("Back")
         }
         Spacer(modifier = Modifier.width(8.dp))
-        if (reserveCover) {
+        if (collage != null) {
+            collage()
+            Spacer(modifier = Modifier.width(12.dp))
+        } else if (reserveCover) {
             Cover(bitmap = cover, size = 72.dp)
             Spacer(modifier = Modifier.width(12.dp))
         }
@@ -740,6 +820,58 @@ private fun Cover(bitmap: ImageBitmap?, size: Dp) {
             )
         }
     }
+}
+
+/**
+ * Artist artwork: up to four album covers in a grid, ordered by a shuffle seeded with the setting's
+ * seed and the artist's name, so the arrangement looks random but is stable between launches.
+ */
+@Composable
+internal fun ArtistCollage(artist: Artist, seed: String, size: Dp) {
+    val albums = remember(artist.name, seed) { collageAlbums(artist, seed) }
+    val covers = albums.take(4).map { rememberArtwork(it.tracks) }
+
+    if (covers.isEmpty() || covers.all { it == null }) {
+        Cover(bitmap = covers.firstOrNull(), size = size)
+        return
+    }
+
+    Box(
+        modifier =
+            Modifier.size(size)
+                .clip(RoundedCornerShape(6.dp))
+                .background(MaterialTheme.colorScheme.surfaceVariant)
+    ) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            covers.chunked(2).forEach { row ->
+                Row(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                    row.forEach { image ->
+                        if (image != null) {
+                            Image(
+                                bitmap = image,
+                                contentDescription = null,
+                                modifier = Modifier.weight(1f).fillMaxHeight(),
+                                contentScale = ContentScale.Crop,
+                            )
+                        } else {
+                            Spacer(modifier = Modifier.weight(1f).fillMaxHeight())
+                        }
+                    }
+                    // An odd cover count leaves a gap rather than stretching the last one.
+                    if (row.size == 1) {
+                        Spacer(modifier = Modifier.weight(1f).fillMaxHeight())
+                    }
+                }
+            }
+        }
+    }
+}
+
+private fun collageAlbums(artist: Artist, seed: String): List<Album> {
+    val albums = artist.albums
+    if (albums.size <= 1) return albums
+    val random = Random(seed.hashCode().toLong() * 31L + artist.name.lowercase().hashCode())
+    return albums.shuffled(random)
 }
 
 /** Decoded covers, keyed by the file the picture came from, so scrolling does not re-read them. */
@@ -902,15 +1034,6 @@ private fun TransportBar(
                 modifier = Modifier.width(150.dp),
             )
 
-            IconButton(onClick = onToggleShuffle) {
-                Icon(
-                    imageVector = AuxioIcons.Shuffle,
-                    contentDescription = if (shuffle) "Shuffle on" else "Shuffle off",
-                    tint =
-                        if (shuffle) MaterialTheme.colorScheme.primary
-                        else LocalContentColor.current,
-                )
-            }
             IconButton(onClick = onCycleLoop) {
                 Icon(
                     imageVector =
@@ -938,12 +1061,22 @@ private fun TransportBar(
             IconButton(onClick = onNext, enabled = current != null) {
                 Icon(imageVector = AuxioIcons.SkipNext, contentDescription = "Next")
             }
+            IconButton(onClick = onToggleShuffle) {
+                Icon(
+                    imageVector = AuxioIcons.Shuffle,
+                    contentDescription = if (shuffle) "Shuffle on" else "Shuffle off",
+                    tint =
+                        if (shuffle) MaterialTheme.colorScheme.primary
+                        else LocalContentColor.current,
+                )
+            }
 
             Spacer(modifier = Modifier.width(8.dp))
             Text(text = formatTime(position), style = MaterialTheme.typography.labelSmall)
             WaveProgress(
                 progress = if (duration > 0.0) (position / duration).toFloat() else 0f,
                 enabled = duration > 0.0,
+                playing = current != null && !paused,
                 onSeek = { fraction -> onSeek(fraction.toDouble()) },
                 modifier = Modifier.weight(1f).padding(horizontal = 12.dp),
             )
