@@ -28,6 +28,8 @@ data class Track(
     val album: String? = null,
     val trackNumber: Int? = null,
     val year: Int? = null,
+    /** Raw date tag, kept verbatim so the settings can decide how to render it. */
+    val date: String? = null,
     val durationSeconds: Double? = null,
 ) {
     /** Stable identity for a track; the path is the only thing that cannot lie. */
@@ -40,6 +42,7 @@ data class Album(
     val name: String,
     val artist: String?,
     val year: Int?,
+    val date: String?,
     val tracks: List<Track>,
 ) {
     val durationSeconds: Double
@@ -73,28 +76,42 @@ object Library {
      * @param separators characters that split a multi-artist tag into separate artists, matching
      *   Auxio's metadata separator setting. Album grouping still uses the raw tag, so a compilation
      *   stays one album.
+     * @param ignoreLeadingPunctuation sort "\\*Song" under "S" instead of at the top, as if the
+     *   decoration were not there.
      */
-    fun build(songs: List<Track>, separators: Set<Char> = emptySet()): MusicLibrary {
+    fun build(
+        songs: List<Track>,
+        separators: Set<Char> = emptySet(),
+        ignoreLeadingPunctuation: Boolean = false,
+    ): MusicLibrary {
+        val normalized = normalizeArtists(songs, separators)
+
         val albums =
-            songs
+            normalized
                 .groupBy { albumName(it) to (it.artist ?: UNKNOWN_ARTIST) }
                 .map { (key, tracks) ->
                     val ordered =
                         tracks.sortedWith(
                             compareBy<Track> { it.trackNumber ?: Int.MAX_VALUE }
-                                .thenBy { it.title.lowercase() }
+                                .thenBy { sortKey(it.title, ignoreLeadingPunctuation) }
                         )
                     Album(
                         name = key.first,
                         artist = key.second,
                         year = tracks.mapNotNull { it.year }.minOrNull(),
+                        date = Dates.earliest(tracks.map { it.date }),
                         tracks = ordered,
                     )
                 }
-                .sortedWith(compareBy({ it.name.lowercase() }, { it.artist?.lowercase() }))
+                .sortedWith(
+                    compareBy(
+                        { sortKey(it.name, ignoreLeadingPunctuation) },
+                        { it.artist?.lowercase() },
+                    )
+                )
 
         val artists =
-            songs
+            normalized
                 .flatMap { track -> artistNames(track, separators).map { name -> name to track } }
                 // Tags disagree about casing often; "X" and "x" are the same artist.
                 .groupBy { it.first.lowercase() }
@@ -106,13 +123,43 @@ object Library {
                         albums = albums.filter { album -> album.tracks.any { it.id in ids } },
                         tracks =
                             tracks.sortedWith(
-                                compareBy({ it.album ?: "" }, { it.trackNumber ?: 0 })
+                                compareBy(
+                                    { sortKey(it.album ?: "", ignoreLeadingPunctuation) },
+                                    { it.trackNumber ?: 0 },
+                                )
                             ),
                     )
                 }
-                .sortedBy { it.name.lowercase() }
+                .sortedBy { sortKey(it.name, ignoreLeadingPunctuation) }
 
-        return MusicLibrary(songs = songs, albums = albums, artists = artists)
+        val sortedSongs = normalized.sortedBy { sortKey(it.title, ignoreLeadingPunctuation) }
+
+        return MusicLibrary(songs = sortedSongs, albums = albums, artists = artists)
+    }
+
+    /**
+     * Rewrites every song's artist to the spellings the library settled on.
+     *
+     * A tag like "X; x; Y" lists the same artist twice in different casing; the duplicate is
+     * dropped and both survivors take the name used by most of the library, so the songs list and
+     * the artist page agree.
+     */
+    private fun normalizeArtists(songs: List<Track>, separators: Set<Char>): List<Track> {
+        val splitByTrack = songs.associate { it.id to artistNames(it, separators) }
+        val canonical =
+            splitByTrack.values
+                .flatten()
+                .groupBy { it.lowercase() }
+                .mapValues { (_, variants) -> displayName(variants) }
+
+        return songs.map { track ->
+            val names =
+                splitByTrack
+                    .getValue(track.id)
+                    .map { canonical[it.lowercase()] ?: it }
+                    .distinctBy { it.lowercase() }
+            track.copy(artist = names.joinToString("; "))
+        }
     }
 
     /**
@@ -140,5 +187,14 @@ object Library {
             .map { it.trim() }
             .filter { it.isNotEmpty() }
             .ifEmpty { listOf(UNKNOWN_ARTIST) }
+    }
+
+    /** Case-insensitive sort key, optionally past leading non-alphanumeric decoration. */
+    internal fun sortKey(value: String, ignoreLeadingPunctuation: Boolean): String {
+        val text = value.trim()
+        if (!ignoreLeadingPunctuation) return text.lowercase()
+
+        val start = text.indexOfFirst { it.isLetterOrDigit() }
+        return (if (start >= 0) text.substring(start) else text).lowercase()
     }
 }

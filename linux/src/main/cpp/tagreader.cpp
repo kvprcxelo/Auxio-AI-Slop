@@ -24,6 +24,7 @@
 #include "taglib/fileref.h"
 #include "taglib/tag.h"
 #include "taglib/tbytevector.h"
+#include "taglib/tpropertymap.h"
 
 // Format-specific classes, reached only for embedded artwork: taglib keeps pictures off the base
 // Tag interface, so each container has to be asked in its own way.
@@ -46,7 +47,9 @@ namespace {
 // The desktop port has no such objects, so the same taglib calls are surfaced as a plain array.
 // taglib 2.x trims Tag to title/artist/album/track/year; album artist and disc only live on the
 // format-specific tag classes, so they are not read yet.
-constexpr int FIELD_COUNT = 6;
+//
+// Fields: title, artist, album, track, year, date, duration.
+constexpr int FIELD_COUNT = 7;
 
 std::string toUtf8(const TagLib::String &value) {
     return value.isEmpty() ? std::string() : value.to8Bit(true);
@@ -169,9 +172,22 @@ Java_org_oxycblt_auxio_linux_music_NativeTags_readNative(JNIEnv *env, jclass, js
             }
         }
 
+        // The raw date tag keeps month/day where the format has them; Tag::year() only has the
+        // year, which loses information the settings can format.
+        if (TagLib::File *raw = file.file()) {
+            const TagLib::PropertyMap map = raw->properties();
+            const TagLib::StringList dates = map["DATE"];
+            const TagLib::StringList years = map["YEAR"];
+            if (!dates.isEmpty()) {
+                fields[5] = toUtf8(dates.front());
+            } else if (!years.isEmpty()) {
+                fields[5] = toUtf8(years.front());
+            }
+        }
+
         if (const TagLib::AudioProperties *properties = file.audioProperties()) {
             if (properties->lengthInSeconds() > 0) {
-                fields[5] = std::to_string(properties->lengthInSeconds());
+                fields[6] = std::to_string(properties->lengthInSeconds());
             }
         }
     } catch (...) {

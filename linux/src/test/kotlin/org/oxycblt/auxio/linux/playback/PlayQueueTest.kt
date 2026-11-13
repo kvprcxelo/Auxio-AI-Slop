@@ -35,12 +35,11 @@ class PlayQueueTest {
 
     private fun mpvAvailable(): Boolean = runCatching { Mpv.load() }.isSuccess
 
-    /** The same tone under two names, so the queue has two distinct entries. */
-    private fun tracks(dir: Path): List<Track> {
-        val first = tone().copyTo(dir.resolve("one.wav"), overwrite = true)
-        val second = tone().copyTo(dir.resolve("two.wav"), overwrite = true)
-        return listOf(Track(first, "One"), Track(second, "Two"))
-    }
+    /** The same tone under several names, so the queue has distinct entries. */
+    private fun tracks(dir: Path, count: Int = 2): List<Track> =
+        (0 until count).map { index ->
+            Track(tone().copyTo(dir.resolve("track$index.wav"), overwrite = true), "Track $index")
+        }
 
     @Test
     fun `starts at the requested track and steps through the queue`() {
@@ -53,14 +52,14 @@ class PlayQueueTest {
             val songs = tracks(dir)
 
             queue.setTracks(songs, startAt = 1)
-            assertEquals("Two", queue.current?.title)
+            assertEquals("Track 1", queue.current?.title)
 
             assertTrue(queue.previous())
-            assertEquals("One", queue.current?.title)
+            assertEquals("Track 0", queue.current?.title)
             assertFalse(queue.previous(), "the queue cannot go before the first track")
 
             assertTrue(queue.next())
-            assertEquals("Two", queue.current?.title)
+            assertEquals("Track 1", queue.current?.title)
             assertFalse(queue.next(), "the queue cannot go past the last track")
         } finally {
             player.close()
@@ -89,7 +88,106 @@ class PlayQueueTest {
             }
 
             assertTrue(advanced, "playback ending did not advance the queue")
-            assertEquals("Two", queue.current?.title)
+            assertEquals("Track 1", queue.current?.title)
+        } finally {
+            player.close()
+            dir.toFile().deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `shuffle visits every track exactly once`() {
+        assumeTrue(mpvAvailable(), "libmpv is not installed")
+
+        val dir = Files.createTempDirectory("auxio-shuffle")
+        val player = MpvPlayer(audioDriver = "null")
+        try {
+            val queue = PlayQueue(player)
+            val songs = tracks(dir, count = 6)
+            queue.setShuffle(true)
+            queue.setTracks(songs)
+
+            val played = mutableListOf(queue.current?.title)
+            while (queue.next()) {
+                played += queue.current?.title
+            }
+
+            assertEquals(songs.map { it.title }.toSet(), played.toSet())
+            assertEquals(played.size, played.toSet().size, "shuffle repeated a track: $played")
+        } finally {
+            player.close()
+            dir.toFile().deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `turning shuffle on keeps the current track`() {
+        assumeTrue(mpvAvailable(), "libmpv is not installed")
+
+        val dir = Files.createTempDirectory("auxio-shuffle-keep")
+        val player = MpvPlayer(audioDriver = "null")
+        try {
+            val queue = PlayQueue(player)
+            queue.setTracks(tracks(dir, count = 5), startAt = 3)
+            val playing = queue.current?.title
+
+            queue.setShuffle(true)
+
+            assertEquals(playing, queue.current?.title)
+        } finally {
+            player.close()
+            dir.toFile().deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `loop all wraps from the last track to the first`() {
+        assumeTrue(mpvAvailable(), "libmpv is not installed")
+
+        val dir = Files.createTempDirectory("auxio-loop")
+        val player = MpvPlayer(audioDriver = "null")
+        try {
+            val queue = PlayQueue(player)
+            val songs = tracks(dir, count = 3)
+            queue.setTracks(songs)
+            queue.setLoop(LoopMode.ALL)
+
+            assertTrue(queue.next())
+            assertTrue(queue.next())
+            assertEquals("Track 2", queue.current?.title)
+
+            assertTrue(queue.next(), "loop all should wrap instead of stopping")
+            assertEquals("Track 0", queue.current?.title)
+        } finally {
+            player.close()
+            dir.toFile().deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `loop one replays the same track when it ends`() {
+        assumeTrue(mpvAvailable(), "libmpv is not installed")
+
+        val dir = Files.createTempDirectory("auxio-loop-one")
+        val player = MpvPlayer(audioDriver = "null")
+        try {
+            val queue = PlayQueue(player)
+            queue.setTracks(tracks(dir, count = 2))
+            queue.setLoop(LoopMode.ONE)
+            val playing = queue.current?.title
+
+            val deadline = System.nanoTime() + 15_000_000_000L
+            var repeated = false
+            while (System.nanoTime() < deadline) {
+                if (queue.advanceIfFinished()) {
+                    repeated = true
+                    break
+                }
+                Thread.sleep(100)
+            }
+
+            assertTrue(repeated, "the track did not restart")
+            assertEquals(playing, queue.current?.title)
         } finally {
             player.close()
             dir.toFile().deleteRecursively()

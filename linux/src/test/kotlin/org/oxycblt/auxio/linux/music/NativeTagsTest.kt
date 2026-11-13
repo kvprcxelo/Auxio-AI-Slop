@@ -92,7 +92,8 @@ class NativeTagsTest {
             val track = LibraryScanner.scan(listOf(dir)).songs.single()
 
             assertEquals("09 - Filename Only", track.title)
-            assertNull(track.artist)
+            // The library normalises missing artists to a single placeholder.
+            assertEquals(Library.UNKNOWN_ARTIST, track.artist)
         } finally {
             Files.walk(dir).use { stream ->
                 stream.sorted(Comparator.reverseOrder()).forEach { Files.deleteIfExists(it) }

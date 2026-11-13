@@ -34,6 +34,7 @@ class LibraryTest {
         year: Int? = null,
         duration: Double? = null,
         folder: String = "music",
+        date: String? = null,
     ) =
         Track(
             path = Path("/$folder/$name"),
@@ -42,6 +43,7 @@ class LibraryTest {
             album = album,
             trackNumber = trackNumber,
             year = year,
+            date = date,
             durationSeconds = duration,
         )
 
@@ -99,6 +101,53 @@ class LibraryTest {
         assertEquals(listOf("Artist", Library.UNKNOWN_ARTIST), library.artists.map { it.name })
         assertEquals(2, library.artists.first().tracks.size)
         assertEquals(1, library.artists.last().tracks.size)
+    }
+
+    @Test
+    fun `drops repeated artist entries and adopts the library spelling`() {
+        val library =
+            Library.build(
+                listOf(
+                    track("a.flac", "One", "alpha; Alpha; Beta", "Album"),
+                    track("b.flac", "Two", "Alpha", "Album"),
+                ),
+                separators = setOf(';'),
+            )
+
+        assertEquals(listOf("Alpha", "Beta"), library.artists.map { it.name })
+        // The duplicate survives once, spelled the way the rest of the library spells it.
+        assertEquals("Alpha; Beta", library.songs.first { it.title == "One" }.artist)
+    }
+
+    @Test
+    fun `sorts past leading punctuation when the setting is on`() {
+        val songs =
+            listOf(
+                track("a.flac", "*Zebra", "Artist", "Album"),
+                track("b.flac", "Apple", "Artist", "Album"),
+            )
+
+        assertEquals(
+            listOf("Apple", "*Zebra"),
+            Library.build(songs, ignoreLeadingPunctuation = true).songs.map { it.title },
+        )
+        assertEquals(
+            listOf("*Zebra", "Apple"),
+            Library.build(songs, ignoreLeadingPunctuation = false).songs.map { it.title },
+        )
+    }
+
+    @Test
+    fun `takes the earliest album date`() {
+        val library =
+            Library.build(
+                listOf(
+                    track("a.flac", "One", "Artist", "Album", date = "2001-05-03"),
+                    track("b.flac", "Two", "Artist", "Album", date = "1999"),
+                )
+            )
+
+        assertEquals("1999", library.albums.single().date)
     }
 
     @Test

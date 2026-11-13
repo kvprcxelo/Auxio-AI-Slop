@@ -22,18 +22,21 @@ import java.nio.file.Files
 import java.nio.file.Path
 import java.util.Properties
 import kotlin.io.path.Path
+import org.oxycblt.auxio.linux.music.Dates
 
 /**
  * Preferences, stored as a properties file under the XDG config directory.
  *
- * Auxio keeps these in DataStore behind Hilt; the desktop port needs two keys, so a plain file
- * avoids the whole DI graph.
+ * Auxio keeps these in DataStore behind Hilt; the desktop port needs a handful of keys, so a plain
+ * file avoids the whole DI graph.
  */
 object Settings {
     /** Semicolons and slashes are what most tagged libraries actually use. */
     const val DEFAULT_SEPARATORS = ";/"
 
     private const val SEPARATORS_KEY = "metadata.separators"
+    private const val DATE_FORMAT_KEY = "metadata.dateFormat"
+    private const val SORT_PUNCTUATION_KEY = "sorting.ignoreLeadingPunctuation"
 
     private val file: Path by lazy {
         val base =
@@ -45,8 +48,27 @@ object Settings {
     fun separators(): String = properties().getProperty(SEPARATORS_KEY) ?: DEFAULT_SEPARATORS
 
     fun separators(value: String) {
+        put(SEPARATORS_KEY, value)
+    }
+
+    /** One of [Dates.PRESETS]; the system locale's date format unless changed. */
+    fun dateFormat(): String = properties().getProperty(DATE_FORMAT_KEY) ?: Dates.SYSTEM
+
+    fun dateFormat(value: String) {
+        put(DATE_FORMAT_KEY, value)
+    }
+
+    /** "\\*Song", "(Song)" and the like sort under the first letter when this is on. */
+    fun ignoresLeadingPunctuation(): Boolean =
+        properties().getProperty(SORT_PUNCTUATION_KEY)?.toBooleanStrictOrNull() ?: true
+
+    fun ignoresLeadingPunctuation(value: Boolean) {
+        put(SORT_PUNCTUATION_KEY, value.toString())
+    }
+
+    private fun put(key: String, value: String) {
         val properties = properties()
-        properties.setProperty(SEPARATORS_KEY, value)
+        properties.setProperty(key, value)
         runCatching {
             file.parent?.let { Files.createDirectories(it) }
             Files.newOutputStream(file).use { properties.store(it, "Auxio for Linux") }

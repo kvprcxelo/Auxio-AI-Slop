@@ -56,6 +56,30 @@ internal object AuxioIcons {
         )
     }
 
+    val Shuffle: ImageVector by lazy {
+        icon(
+            "Shuffle",
+            "M10.59 9.17L5.41 4 4 5.41l5.17 5.17 1.42-1.41zM14.5 4l2.04 2.04L4 18.59 5.41 20 " +
+                "17.96 7.46 20 9.5V4h-5.5zm.33 9.41l-1.41 1.41 3.13 3.13L14.5 20H20v-5.5l-2.04 " +
+                "2.04-3.13-3.13z",
+        )
+    }
+
+    val Repeat: ImageVector by lazy {
+        icon(
+            "Repeat",
+            "M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4z",
+        )
+    }
+
+    val RepeatOne: ImageVector by lazy {
+        icon(
+            "RepeatOne",
+            "M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4zm-4-2V9h-1l-2 1v1" +
+                "h1.5v4H13z",
+        )
+    }
+
     val ArrowBack: ImageVector by lazy {
         icon("ArrowBack", "M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z")
     }

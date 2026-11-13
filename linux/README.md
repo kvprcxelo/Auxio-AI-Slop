@@ -8,13 +8,17 @@ other's toolchain: the Android build needs the SDK and NDK, this one needs a JDK
 
 It scans folders, reads tags through taglib, and browses the result as **songs, albums and
 artists**, each with a detail view. Playing a song fills a queue from the list you started it in,
-with previous/next and automatic advance when a track ends. Cover art is shown for the current
-album, artist and track: the picture embedded in the file, or `cover.jpg`/`folder.jpg` (and
-similar names) from its folder. Artists are grouped case-insensitively, so "x" and "X" are one
-artist shown with whichever spelling occurs most. A settings page offers a library rescan and the metadata
-separators used to split multi-artist tags. Titles fall back to file names when a file carries no
-tags. Album artist and disc numbers are not read yet, and there are no playlists, MPRIS, search
-ranking or ReplayGain.
+with previous/next, automatic advance when a track ends, **shuffle** and **repeat all / repeat
+one**. The progress bar is drawn as a scrolling wave and still seeks on click or drag. Cover art
+is shown for the current album, artist and track: the picture embedded in the file, or
+`cover.jpg`/`folder.jpg` (and similar names) from its folder. Artists are grouped
+case-insensitively, so "x" and "X" are one artist shown with whichever spelling occurs most, and
+repeated names inside one tag are dropped. Album dates are read from the date tag and shown in a
+format chosen in settings, defaulting to your system's short date. A settings page also offers a
+library rescan, the metadata separators used to split multi-artist tags, and a switch that sorts
+`*Song` or `(Song)` under its first letter instead of the symbol. Titles fall back to file names
+when a file carries no tags. Album artist and disc numbers are not read yet, and there are no
+playlists, MPRIS, search ranking or ReplayGain.
 
 ## Requirements
 
@@ -35,9 +39,18 @@ Could not start playback: libmpv was not found. Install it with your package man
 ## Settings
 
 Settings live in `$XDG_CONFIG_HOME/auxio/settings.properties` (defaulting to
-`~/.config/auxio/settings.properties`). Today that is one key, `metadata.separators`: any artist
-tag containing one of those characters is split into separate artists, so `A; B` lists under both.
-Albums keep their raw tag, so compilations stay one album. Changes apply immediately.
+`~/.config/auxio/settings.properties`):
+
+- `metadata.separators` — any artist tag containing one of those characters is split into
+  separate artists, so `A; B` lists under both. Albums keep their raw tag, so compilations stay
+  one album.
+- `metadata.dateFormat` — one of `system` (the default), `year`, `iso`, `d MMM yyyy`,
+  `MMM d, yyyy`, `dd/MM/yyyy`, `MM/dd/yyyy`. Dates come from the album's date tag; a tag with only
+  a year keeps showing just the year.
+- `sorting.ignoreLeadingPunctuation` — `true` (the default) sorts by the first letter or digit,
+  so `*Song` and `(Song)` file under S.
+
+Changes apply immediately.
 
 ## Logs
 

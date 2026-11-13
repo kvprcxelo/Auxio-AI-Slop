@@ -18,9 +18,17 @@
  
 package org.oxycblt.auxio.linux.ui
 
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.darkColorScheme
 import androidx.compose.ui.ImageComposeScene
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.pointer.PointerEventType
+import androidx.compose.ui.unit.dp
 import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.test.Test
@@ -114,5 +122,37 @@ class UiRenderTest {
         } finally {
             player.close()
         }
+    }
+
+    @Test
+    fun `renders the wave progress bar`() {
+        val output = Files.createTempDirectory("auxio-wave").resolve("wave.png")
+
+        val scene =
+            ImageComposeScene(width = 640, height = 120) {
+                MaterialTheme(colorScheme = darkColorScheme()) {
+                    Surface {
+                        Column(modifier = Modifier.padding(24.dp)) {
+                            WaveProgress(
+                                progress = 0.62f,
+                                enabled = false,
+                                onSeek = {},
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                        }
+                    }
+                }
+            }
+        try {
+            scene.render()
+            val image = scene.render()
+            val encoded = requireNotNull(image.encodeToData(EncodedImageFormat.PNG))
+            Files.write(output, encoded.bytes)
+        } finally {
+            scene.close()
+        }
+
+        assertTrue(Files.size(output) > 500, "the bar did not draw")
+        println("WAVE $output")
     }
 }

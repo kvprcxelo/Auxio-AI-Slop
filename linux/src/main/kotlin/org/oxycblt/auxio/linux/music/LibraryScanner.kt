@@ -80,6 +80,7 @@ object LibraryScanner {
             album = tags?.album,
             trackNumber = tags?.trackNumber,
             year = tags?.year,
+            date = tags?.date,
             durationSeconds = tags?.durationSeconds?.toDouble(),
         )
     }

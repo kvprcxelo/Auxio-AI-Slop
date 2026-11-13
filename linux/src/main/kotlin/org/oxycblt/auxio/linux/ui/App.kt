@@ -37,14 +37,17 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -76,11 +79,13 @@ import org.oxycblt.auxio.linux.Settings
 import org.oxycblt.auxio.linux.music.Album
 import org.oxycblt.auxio.linux.music.Artist
 import org.oxycblt.auxio.linux.music.Artwork
+import org.oxycblt.auxio.linux.music.Dates
 import org.oxycblt.auxio.linux.music.Library
 import org.oxycblt.auxio.linux.music.LibraryScanner
 import org.oxycblt.auxio.linux.music.MusicLibrary
 import org.oxycblt.auxio.linux.music.Track
 import org.oxycblt.auxio.linux.playback.DebugLog
+import org.oxycblt.auxio.linux.playback.LoopMode
 import org.oxycblt.auxio.linux.playback.MpvPlayer
 import org.oxycblt.auxio.linux.playback.PlayQueue
 
@@ -102,11 +107,15 @@ fun AuxioApp(
 ) {
     var songs by remember { mutableStateOf(library.songs) }
     var separators by remember { mutableStateOf(initialSeparators) }
+    var dateFormat by remember { mutableStateOf(Settings.dateFormat()) }
+    var ignorePunctuation by remember { mutableStateOf(Settings.ignoresLeadingPunctuation()) }
     var section by remember { mutableStateOf(Section.Songs) }
     var openAlbum by remember { mutableStateOf<Album?>(null) }
     var openArtist by remember { mutableStateOf<Artist?>(null) }
     var showSettings by remember { mutableStateOf(false) }
     var scanning by remember { mutableStateOf(false) }
+    var shuffle by remember { mutableStateOf(false) }
+    var loop by remember { mutableStateOf(LoopMode.OFF) }
     var current by remember { mutableStateOf<Track?>(null) }
     var position by remember { mutableStateOf(0.0) }
     var duration by remember { mutableStateOf(0.0) }
@@ -116,7 +125,10 @@ fun AuxioApp(
     var message by remember { mutableStateOf<Message?>(null) }
 
     val separatorChars = remember(separators) { separators.toSet() }
-    val currentLibrary = remember(songs, separatorChars) { Library.build(songs, separatorChars) }
+    val currentLibrary =
+        remember(songs, separatorChars, ignorePunctuation) {
+            Library.build(songs, separatorChars, ignorePunctuation)
+        }
     val queue = remember { PlayQueue(player) }
     val scope = rememberCoroutineScope()
 
@@ -145,6 +157,16 @@ fun AuxioApp(
         runCatching { if (forward) queue.next() else queue.previous() }
             .onFailure { notify("Could not change track: ${it.message}", error = true) }
         current = queue.current
+    }
+
+    fun toggleShuffle() {
+        shuffle = !shuffle
+        queue.setShuffle(shuffle)
+    }
+
+    fun cycleLoop() {
+        queue.cycleLoop()
+        loop = queue.loop
     }
 
     fun refresh() {
@@ -254,21 +276,28 @@ fun AuxioApp(
                     showSettings ->
                         SettingsPage(
                             separators = separators,
+                            dateFormat = dateFormat,
+                            ignorePunctuation = ignorePunctuation,
                             scanning = scanning,
                             songCount = songs.size,
                             onSeparators = {
                                 separators = it
                                 Settings.separators(it)
                             },
+                            onDateFormat = {
+                                dateFormat = it
+                                Settings.dateFormat(it)
+                            },
+                            onIgnorePunctuation = {
+                                ignorePunctuation = it
+                                Settings.ignoresLeadingPunctuation(it)
+                            },
                             onRefresh = ::refresh,
                             onBack = { showSettings = false },
                             modifier = contentModifier,
                         )
                     currentLibrary.songs.isEmpty() ->
-                        Box(
-                            modifier = contentModifier,
-                            contentAlignment = Alignment.Center,
-                        ) {
+                        Box(modifier = contentModifier, contentAlignment = Alignment.Center) {
                             Text(
                                 text = "No music found in ${roots.joinToString()}",
                                 style = MaterialTheme.typography.bodyLarge,
@@ -283,6 +312,7 @@ fun AuxioApp(
                                 AlbumDetail(
                                     album = album,
                                     current = current,
+                                    dateFormat = dateFormat,
                                     onBack = { openAlbum = null },
                                     onPlay = { index -> play(album.tracks, index) },
                                     modifier = contentModifier,
@@ -319,6 +349,7 @@ fun AuxioApp(
                                         Section.Albums ->
                                             AlbumList(
                                                 albums = visibleAlbums,
+                                                dateFormat = dateFormat,
                                                 onOpen = { openAlbum = it },
                                                 modifier = Modifier.fillMaxSize(),
                                             )
@@ -341,6 +372,10 @@ fun AuxioApp(
                     position = position,
                     duration = duration,
                     volume = volume,
+                    shuffle = shuffle,
+                    loop = loop,
+                    onToggleShuffle = ::toggleShuffle,
+                    onCycleLoop = ::cycleLoop,
                     onPrevious = { step(forward = false) },
                     onTogglePause = {
                         current?.let {
@@ -365,9 +400,13 @@ fun AuxioApp(
 @Composable
 private fun SettingsPage(
     separators: String,
+    dateFormat: String,
+    ignorePunctuation: Boolean,
     scanning: Boolean,
     songCount: Int,
     onSeparators: (String) -> Unit,
+    onDateFormat: (String) -> Unit,
+    onIgnorePunctuation: (Boolean) -> Unit,
     onRefresh: () -> Unit,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
@@ -419,12 +458,58 @@ private fun SettingsPage(
             Text(
                 text =
                     "An artist tag containing any of these characters is split into separate " +
-                        "artists, so \"A; B\" lists under both A and B. Albums stay grouped by " +
-                        "their raw tag. Changes apply immediately and are saved.",
+                        "artists, so \"A; B\" lists under both A and B. Repeated names are " +
+                        "dropped regardless of case. Changes apply immediately and are saved.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.width(720.dp),
             )
+
+            Spacer(modifier = Modifier.size(16.dp))
+            Text(
+                text = "Album date format",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(modifier = Modifier.size(8.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Dates.PRESETS.forEach { preset ->
+                    FilterChip(
+                        selected = dateFormat == preset.id,
+                        onClick = { onDateFormat(preset.id) },
+                        label = { Text(preset.label) },
+                    )
+                }
+            }
+            Spacer(modifier = Modifier.size(8.dp))
+            Text(
+                text =
+                    "Dates come from the album's date tag. \"System\" follows your locale's " +
+                        "short date format; a tag with only a year always shows the year.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.width(720.dp),
+            )
+
+            Spacer(modifier = Modifier.size(16.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Switch(checked = ignorePunctuation, onCheckedChange = onIgnorePunctuation)
+                Spacer(modifier = Modifier.width(12.dp))
+                Column {
+                    Text(
+                        text = "Ignore leading punctuation",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    Text(
+                        text =
+                            "Sort \"*Song\" or \"(Song)\" by the first letter or digit instead of " +
+                                "the symbol.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.width(700.dp),
+                    )
+                }
+            }
         }
     }
 }
@@ -450,21 +535,17 @@ private fun SongList(
 }
 
 @Composable
-private fun AlbumList(albums: List<Album>, onOpen: (Album) -> Unit, modifier: Modifier = Modifier) {
+private fun AlbumList(
+    albums: List<Album>,
+    dateFormat: String,
+    onOpen: (Album) -> Unit,
+    modifier: Modifier = Modifier,
+) {
     LazyColumn(modifier = modifier) {
         items(albums) { album ->
             EntryRow(
                 title = album.name,
-                subtitle =
-                    buildString {
-                        album.artist?.let { append(it) }
-                        append(" · ")
-                        append(
-                            "${album.tracks.size} " +
-                                if (album.tracks.size == 1) "song" else "songs"
-                        )
-                        album.year?.let { append(" · $it") }
-                    },
+                subtitle = albumSubtitle(album, dateFormat),
                 artwork = rememberArtwork(album.tracks),
                 onClick = { onOpen(album) },
             )
@@ -483,9 +564,7 @@ private fun ArtistList(
             EntryRow(
                 title = artist.name,
                 subtitle =
-                    "${artist.albums.size} " +
-                        (if (artist.albums.size == 1) "album" else "albums") +
-                        " · ${artist.tracks.size} songs",
+                    count(artist.albums.size, "album") + " · " + count(artist.tracks.size, "song"),
                 artwork = rememberArtwork(artist.tracks),
                 onClick = { onOpen(artist) },
             )
@@ -493,10 +572,18 @@ private fun ArtistList(
     }
 }
 
+private fun albumSubtitle(album: Album, dateFormat: String): String = buildString {
+    album.artist?.let { append(it) }
+    append(" · ")
+    append(count(album.tracks.size, "song"))
+    Dates.format(album.date ?: album.year?.toString(), dateFormat)?.let { append(" · $it") }
+}
+
 @Composable
 private fun AlbumDetail(
     album: Album,
     current: Track?,
+    dateFormat: String,
     onBack: () -> Unit,
     onPlay: (Int) -> Unit,
     modifier: Modifier = Modifier,
@@ -509,7 +596,9 @@ private fun AlbumDetail(
             subtitle =
                 buildString {
                     album.artist?.let { append(it) }
-                    album.year?.let { append(" · $it") }
+                    Dates.format(album.date ?: album.year?.toString(), dateFormat)?.let {
+                        append(" · $it")
+                    }
                     append(" · ${formatTime(album.durationSeconds)}")
                 },
             cover = cover,
@@ -545,9 +634,7 @@ private fun ArtistDetail(
         DetailHeader(
             title = artist.name,
             subtitle =
-                "${artist.albums.size} " +
-                    (if (artist.albums.size == 1) "album" else "albums") +
-                    " · ${artist.tracks.size} songs",
+                count(artist.albums.size, "album") + " · " + count(artist.tracks.size, "song"),
             cover = cover,
             reserveCover = true,
             onBack = onBack,
@@ -557,7 +644,7 @@ private fun ArtistDetail(
             items(artist.albums) { album ->
                 EntryRow(
                     title = album.name,
-                    subtitle = "${album.tracks.size} songs",
+                    subtitle = count(album.tracks.size, "song"),
                     onClick = { onOpenAlbum(album) },
                 )
             }
@@ -784,6 +871,10 @@ private fun TransportBar(
     position: Double,
     duration: Double,
     volume: Double,
+    shuffle: Boolean,
+    loop: LoopMode,
+    onToggleShuffle: () -> Unit,
+    onCycleLoop: () -> Unit,
     onPrevious: () -> Unit,
     onTogglePause: () -> Unit,
     onNext: () -> Unit,
@@ -808,9 +899,33 @@ private fun TransportBar(
                 style = MaterialTheme.typography.bodyMedium,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.width(180.dp),
+                modifier = Modifier.width(150.dp),
             )
 
+            IconButton(onClick = onToggleShuffle) {
+                Icon(
+                    imageVector = AuxioIcons.Shuffle,
+                    contentDescription = if (shuffle) "Shuffle on" else "Shuffle off",
+                    tint =
+                        if (shuffle) MaterialTheme.colorScheme.primary
+                        else LocalContentColor.current,
+                )
+            }
+            IconButton(onClick = onCycleLoop) {
+                Icon(
+                    imageVector =
+                        if (loop == LoopMode.ONE) AuxioIcons.RepeatOne else AuxioIcons.Repeat,
+                    contentDescription =
+                        when (loop) {
+                            LoopMode.OFF -> "Repeat off"
+                            LoopMode.ALL -> "Repeat all"
+                            LoopMode.ONE -> "Repeat one"
+                        },
+                    tint =
+                        if (loop != LoopMode.OFF) MaterialTheme.colorScheme.primary
+                        else LocalContentColor.current,
+                )
+            }
             IconButton(onClick = onPrevious, enabled = current != null) {
                 Icon(imageVector = AuxioIcons.SkipPrevious, contentDescription = "Previous")
             }
@@ -826,11 +941,10 @@ private fun TransportBar(
 
             Spacer(modifier = Modifier.width(8.dp))
             Text(text = formatTime(position), style = MaterialTheme.typography.labelSmall)
-            Slider(
-                value =
-                    if (duration > 0.0) (position / duration).toFloat().coerceIn(0f, 1f) else 0f,
-                onValueChange = { onSeek(it.toDouble()) },
+            WaveProgress(
+                progress = if (duration > 0.0) (position / duration).toFloat() else 0f,
                 enabled = duration > 0.0,
+                onSeek = { fraction -> onSeek(fraction.toDouble()) },
                 modifier = Modifier.weight(1f).padding(horizontal = 12.dp),
             )
             Text(text = formatTime(duration), style = MaterialTheme.typography.labelSmall)
