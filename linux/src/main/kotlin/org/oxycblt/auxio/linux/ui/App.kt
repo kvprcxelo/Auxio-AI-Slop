@@ -74,11 +74,12 @@ import kotlinx.coroutines.withContext
 import org.oxycblt.auxio.linux.Settings
 import org.oxycblt.auxio.linux.music.Album
 import org.oxycblt.auxio.linux.music.Artist
+import org.oxycblt.auxio.linux.music.Artwork
 import org.oxycblt.auxio.linux.music.Library
 import org.oxycblt.auxio.linux.music.LibraryScanner
 import org.oxycblt.auxio.linux.music.MusicLibrary
-import org.oxycblt.auxio.linux.music.NativeTags
 import org.oxycblt.auxio.linux.music.Track
+import org.oxycblt.auxio.linux.playback.DebugLog
 import org.oxycblt.auxio.linux.playback.MpvPlayer
 import org.oxycblt.auxio.linux.playback.PlayQueue
 
@@ -87,6 +88,9 @@ private enum class Section(val label: String) {
     Albums("Albums"),
     Artists("Artists"),
 }
+
+/** A short-lived line of feedback: scan results, playback failures. */
+private data class Message(val text: String, val error: Boolean = false)
 
 @Composable
 fun AuxioApp(
@@ -108,28 +112,37 @@ fun AuxioApp(
     var paused by remember { mutableStateOf(true) }
     var volume by remember { mutableStateOf(100.0) }
     var query by remember { mutableStateOf("") }
-    var status by remember { mutableStateOf<String?>(null) }
+    var message by remember { mutableStateOf<Message?>(null) }
 
     val separatorChars = remember(separators) { separators.toSet() }
     val currentLibrary = remember(songs, separatorChars) { Library.build(songs, separatorChars) }
     val queue = remember { PlayQueue(player) }
     val scope = rememberCoroutineScope()
 
+    /** Shows a message and clears it again, so nothing stale is left on screen. */
+    fun notify(text: String, error: Boolean = false) {
+        val next = Message(text, error)
+        message = next
+        scope.launch {
+            delay(if (error) 8000 else 4000)
+            if (message == next) message = null
+        }
+    }
+
     fun play(tracks: List<Track>, index: Int) {
-        status =
-            runCatching { queue.setTracks(tracks, index) }
-                .exceptionOrNull()
-                ?.let {
-                    "Could not play ${tracks.getOrNull(index)?.title ?: "track"}: ${it.message}"
-                }
+        runCatching { queue.setTracks(tracks, index) }
+            .onFailure {
+                notify(
+                    "Could not play ${tracks.getOrNull(index)?.title ?: "track"}: ${it.message}",
+                    error = true,
+                )
+            }
         current = queue.current
     }
 
     fun step(forward: Boolean) {
-        status =
-            runCatching { if (forward) queue.next() else queue.previous() }
-                .exceptionOrNull()
-                ?.let { "Could not change track: ${it.message}" }
+        runCatching { if (forward) queue.next() else queue.previous() }
+            .onFailure { notify("Could not change track: ${it.message}", error = true) }
         current = queue.current
     }
 
@@ -137,16 +150,16 @@ fun AuxioApp(
         if (scanning) return
 
         scanning = true
-        status = "Scanning ${roots.joinToString()}…"
+        notify("Scanning ${roots.joinToString()}…")
         scope.launch {
             val result =
                 withContext(Dispatchers.IO) { runCatching { LibraryScanner.scan(roots).songs } }
             result
                 .onSuccess { found ->
                     songs = found
-                    status = "Found ${found.size} songs"
+                    notify("Found ${found.size} songs")
                 }
-                .onFailure { status = "Scan failed: ${it.message}" }
+                .onFailure { notify("Scan failed: ${it.message}", error = true) }
             scanning = false
         }
     }
@@ -218,14 +231,20 @@ fun AuxioApp(
                     }
                 }
 
-                status?.let { message ->
+                message?.let { shown ->
                     Text(
-                        text = message,
+                        text = shown.text,
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.error,
+                        color =
+                            if (shown.error) MaterialTheme.colorScheme.error
+                            else MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
                     )
                 }
+
+                // The content takes the space left over by the transport bar. Without the weight
+                // its fillMaxSize() would consume the whole column and push the bar out of view.
+                val contentModifier = Modifier.fillMaxWidth().weight(1f)
 
                 when {
                     showSettings ->
@@ -239,10 +258,11 @@ fun AuxioApp(
                             },
                             onRefresh = ::refresh,
                             onBack = { showSettings = false },
+                            modifier = contentModifier,
                         )
                     currentLibrary.songs.isEmpty() ->
                         Box(
-                            modifier = Modifier.fillMaxSize(),
+                            modifier = contentModifier,
                             contentAlignment = Alignment.Center,
                         ) {
                             Text(
@@ -261,6 +281,7 @@ fun AuxioApp(
                                     current = current,
                                     onBack = { openAlbum = null },
                                     onPlay = { index -> play(album.tracks, index) },
+                                    modifier = contentModifier,
                                 )
                             artist != null ->
                                 ArtistDetail(
@@ -269,35 +290,41 @@ fun AuxioApp(
                                     onBack = { openArtist = null },
                                     onOpenAlbum = { openAlbum = it },
                                     onPlay = { index -> play(artist.tracks, index) },
+                                    modifier = contentModifier,
                                 )
                             else -> {
-                                PrimaryTabRow(selectedTabIndex = section.ordinal) {
-                                    Section.entries.forEach { entry ->
-                                        Tab(
-                                            selected = section == entry,
-                                            onClick = { section = entry },
-                                            text = { Text(entry.label) },
-                                        )
+                                Column(modifier = contentModifier) {
+                                    PrimaryTabRow(selectedTabIndex = section.ordinal) {
+                                        Section.entries.forEach { entry ->
+                                            Tab(
+                                                selected = section == entry,
+                                                onClick = { section = entry },
+                                                text = { Text(entry.label) },
+                                            )
+                                        }
                                     }
-                                }
 
-                                when (section) {
-                                    Section.Songs ->
-                                        SongList(
-                                            tracks = visibleSongs,
-                                            current = current,
-                                            onPlay = { index -> play(visibleSongs, index) },
-                                        )
-                                    Section.Albums ->
-                                        AlbumList(
-                                            albums = visibleAlbums,
-                                            onOpen = { openAlbum = it },
-                                        )
-                                    Section.Artists ->
-                                        ArtistList(
-                                            artists = visibleArtists,
-                                            onOpen = { openArtist = it },
-                                        )
+                                    when (section) {
+                                        Section.Songs ->
+                                            SongList(
+                                                tracks = visibleSongs,
+                                                current = current,
+                                                onPlay = { index -> play(visibleSongs, index) },
+                                                modifier = Modifier.fillMaxSize(),
+                                            )
+                                        Section.Albums ->
+                                            AlbumList(
+                                                albums = visibleAlbums,
+                                                onOpen = { openAlbum = it },
+                                                modifier = Modifier.fillMaxSize(),
+                                            )
+                                        Section.Artists ->
+                                            ArtistList(
+                                                artists = visibleArtists,
+                                                onOpen = { openArtist = it },
+                                                modifier = Modifier.fillMaxSize(),
+                                            )
+                                    }
                                 }
                             }
                         }
@@ -339,8 +366,9 @@ private fun SettingsPage(
     onSeparators: (String) -> Unit,
     onRefresh: () -> Unit,
     onBack: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
-    Column(modifier = Modifier.fillMaxSize()) {
+    Column(modifier = modifier) {
         DetailHeader(title = "Settings", subtitle = "$songCount songs", onBack = onBack)
 
         Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
@@ -391,8 +419,13 @@ private fun SettingsPage(
 }
 
 @Composable
-private fun SongList(tracks: List<Track>, current: Track?, onPlay: (Int) -> Unit) {
-    LazyColumn(modifier = Modifier.fillMaxSize()) {
+private fun SongList(
+    tracks: List<Track>,
+    current: Track?,
+    onPlay: (Int) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    LazyColumn(modifier = modifier) {
         itemsIndexed(tracks) { index, track ->
             TrackRow(
                 track = track,
@@ -405,8 +438,8 @@ private fun SongList(tracks: List<Track>, current: Track?, onPlay: (Int) -> Unit
 }
 
 @Composable
-private fun AlbumList(albums: List<Album>, onOpen: (Album) -> Unit) {
-    LazyColumn(modifier = Modifier.fillMaxSize()) {
+private fun AlbumList(albums: List<Album>, onOpen: (Album) -> Unit, modifier: Modifier = Modifier) {
+    LazyColumn(modifier = modifier) {
         items(albums) { album ->
             EntryRow(
                 title = album.name,
@@ -427,8 +460,12 @@ private fun AlbumList(albums: List<Album>, onOpen: (Album) -> Unit) {
 }
 
 @Composable
-private fun ArtistList(artists: List<Artist>, onOpen: (Artist) -> Unit) {
-    LazyColumn(modifier = Modifier.fillMaxSize()) {
+private fun ArtistList(
+    artists: List<Artist>,
+    onOpen: (Artist) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    LazyColumn(modifier = modifier) {
         items(artists) { artist ->
             EntryRow(
                 title = artist.name,
@@ -448,10 +485,11 @@ private fun AlbumDetail(
     current: Track?,
     onBack: () -> Unit,
     onPlay: (Int) -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     val cover = rememberArtwork(album.tracks)
 
-    Column(modifier = Modifier.fillMaxSize()) {
+    Column(modifier = modifier) {
         DetailHeader(
             title = album.name,
             subtitle =
@@ -484,10 +522,11 @@ private fun ArtistDetail(
     onBack: () -> Unit,
     onOpenAlbum: (Album) -> Unit,
     onPlay: (Int) -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     val cover = rememberArtwork(artist.tracks)
 
-    Column(modifier = Modifier.fillMaxSize()) {
+    Column(modifier = modifier) {
         DetailHeader(
             title = artist.name,
             subtitle =
@@ -545,10 +584,8 @@ private fun DetailHeader(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         TextButton(onClick = onBack) { Text("\u2039 Back") }
-        if (cover != null) {
-            Spacer(modifier = Modifier.width(8.dp))
-            Cover(bitmap = cover, size = 72.dp)
-        }
+        Spacer(modifier = Modifier.width(8.dp))
+        Cover(bitmap = cover, size = 72.dp)
         Spacer(modifier = Modifier.width(12.dp))
         Column {
             Text(
@@ -568,6 +605,7 @@ private fun DetailHeader(
     }
 }
 
+/** Cover placeholder doubles as the layout slot, so sizes stay stable with and without art. */
 @Composable
 private fun Cover(bitmap: ImageBitmap?, size: Dp) {
     Box(
@@ -590,7 +628,7 @@ private fun Cover(bitmap: ImageBitmap?, size: Dp) {
     }
 }
 
-/** First embedded cover found among [tracks], decoded once per list. */
+/** First cover found among [tracks], decoded once per list. */
 @Composable
 private fun rememberArtwork(tracks: List<Track>): ImageBitmap? {
     var image by remember(tracks) { mutableStateOf<ImageBitmap?>(null) }
@@ -598,9 +636,13 @@ private fun rememberArtwork(tracks: List<Track>): ImageBitmap? {
     LaunchedEffect(tracks) {
         image =
             withContext(Dispatchers.IO) {
-                tracks.firstNotNullOfOrNull { track ->
-                    NativeTags.artwork(track.path)?.let { decodeArtwork(it) }
+                val found = tracks.firstNotNullOfOrNull { track ->
+                    Artwork.bytes(track)?.let { decodeArtwork(it) }
                 }
+                if (found == null) {
+                    DebugLog.write("no artwork for ${tracks.firstOrNull()?.path ?: "nothing"}")
+                }
+                found
             }
     }
 

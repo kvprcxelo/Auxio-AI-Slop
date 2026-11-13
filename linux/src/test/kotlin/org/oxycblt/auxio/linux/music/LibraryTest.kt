@@ -102,6 +102,48 @@ class LibraryTest {
     }
 
     @Test
+    fun `groups artist names case-insensitively and shows the most common spelling`() {
+        val library =
+            Library.build(
+                listOf(
+                    track("a.flac", "One", "x", "Album"),
+                    track("b.flac", "Two", "X", "Album"),
+                    track("c.flac", "Three", "X", "Album"),
+                )
+            )
+
+        assertEquals(listOf("X"), library.artists.map { it.name })
+        assertEquals(3, library.artists.single().tracks.size)
+    }
+
+    @Test
+    fun `prefers the uppercase spelling when both are equally common`() {
+        val library =
+            Library.build(
+                listOf(
+                    track("a.flac", "One", "x", "Album"),
+                    track("b.flac", "Two", "X", "Album"),
+                )
+            )
+
+        assertEquals(listOf("X"), library.artists.map { it.name })
+    }
+
+    @Test
+    fun `sorts artists case-insensitively`() {
+        val library =
+            Library.build(
+                listOf(
+                    track("a.flac", "One", "beta", "Album"),
+                    track("b.flac", "Two", "Alpha", "Album"),
+                    track("c.flac", "Three", "gamma", "Album"),
+                )
+            )
+
+        assertEquals(listOf("Alpha", "beta", "gamma"), library.artists.map { it.name })
+    }
+
+    @Test
     fun `splits artists on the configured separators`() {
         val library =
             Library.build(

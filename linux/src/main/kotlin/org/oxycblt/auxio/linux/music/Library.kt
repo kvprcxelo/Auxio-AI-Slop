@@ -96,15 +96,16 @@ object Library {
         val artists =
             songs
                 .flatMap { track -> artistNames(track, separators).map { name -> name to track } }
-                .groupBy({ it.first }, { it.second })
-                .map { (name, tracks) ->
-                    val distinct = tracks.distinctBy { it.id }
-                    val ids = distinct.map { it.id }.toSet()
+                // Tags disagree about casing often; "X" and "x" are the same artist.
+                .groupBy { it.first.lowercase() }
+                .map { (_, entries) ->
+                    val tracks = entries.map { it.second }.distinctBy { it.id }
+                    val ids = tracks.map { it.id }.toSet()
                     Artist(
-                        name = name,
+                        name = displayName(entries.map { it.first }),
                         albums = albums.filter { album -> album.tracks.any { it.id in ids } },
                         tracks =
-                            distinct.sortedWith(
+                            tracks.sortedWith(
                                 compareBy({ it.album ?: "" }, { it.trackNumber ?: 0 })
                             ),
                     )
@@ -113,6 +114,19 @@ object Library {
 
         return MusicLibrary(songs = songs, albums = albums, artists = artists)
     }
+
+    /**
+     * The spelling to show for an artist whose tags disagree: whichever variant occurs most, with
+     * ties broken alphabetically so the choice is stable between rebuilds.
+     */
+    private fun displayName(variants: List<String>): String =
+        variants
+            .groupingBy { it }
+            .eachCount()
+            .entries
+            .sortedWith(compareByDescending<Map.Entry<String, Int>> { it.value }.thenBy { it.key })
+            .first()
+            .key
 
     private fun albumName(track: Track): String =
         track.album ?: track.path.parent?.fileName?.toString() ?: "Unknown album"

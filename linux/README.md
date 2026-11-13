@@ -8,8 +8,10 @@ other's toolchain: the Android build needs the SDK and NDK, this one needs a JDK
 
 It scans folders, reads tags through taglib, and browses the result as **songs, albums and
 artists**, each with a detail view. Playing a song fills a queue from the list you started it in,
-with previous/next and automatic advance when a track ends. Embedded cover art is shown for the
-current album, artist and track. A settings page offers a library rescan and the metadata
+with previous/next and automatic advance when a track ends. Cover art is shown for the current
+album, artist and track: the picture embedded in the file, or `cover.jpg`/`folder.jpg` (and
+similar names) from its folder. Artists are grouped case-insensitively, so "x" and "X" are one
+artist shown with whichever spelling occurs most. A settings page offers a library rescan and the metadata
 separators used to split multi-artist tags. Titles fall back to file names when a file carries no
 tags. Album artist and disc numbers are not read yet, and there are no playlists, MPRIS, search
 ranking or ReplayGain.
