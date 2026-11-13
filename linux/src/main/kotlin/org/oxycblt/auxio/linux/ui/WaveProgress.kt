@@ -53,8 +53,8 @@ import androidx.compose.ui.unit.dp
  * A drag snaps instead: the wave should sit under the pointer, not chase it.
  *
  * The indicator's default amplitude collapses the wave at the very start and the very end of a
- * track, which makes short progress look like a plain line, so a constant amplitude is used. The
- * wave only travels while [playing]; pausing freezes it in place.
+ * track, which makes short progress look like a plain line, so a constant amplitude is used while
+ * playing. Paused, the amplitude drops to zero and the bar becomes a straight line.
  *
  * Progress indicators do not handle input, so everything sits in a taller touch target that turns
  * taps and horizontal drags into a seek fraction.
@@ -107,7 +107,8 @@ internal fun WaveProgress(
             // The thumb marks the position, so the track's stop dot would just be a second, smaller
             // marker next to it.
             stopSize = 0.dp,
-            amplitude = { 1f },
+            // Paused, the wave collapses back into a plain line rather than freezing mid-wave.
+            amplitude = { if (playing) 1f else 0f },
             wavelength = WavyProgressIndicatorDefaults.LinearDeterminateWavelength,
             waveSpeed =
                 if (playing) WavyProgressIndicatorDefaults.LinearDeterminateWavelength else 0.dp,

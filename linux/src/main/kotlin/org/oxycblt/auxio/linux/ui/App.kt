@@ -24,6 +24,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
@@ -37,6 +38,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
@@ -45,6 +47,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Slider
@@ -67,6 +70,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.toComposeImageBitmap
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -329,11 +333,16 @@ fun AuxioApp(
                             artist != null ->
                                 ArtistDetail(
                                     artist = artist,
-                                    current = current,
                                     collageSeed = collageSeed,
+                                    dateFormat = dateFormat,
                                     onBack = { openArtist = null },
                                     onOpenAlbum = { openAlbum = it },
                                     onPlay = { index -> play(artist.tracks, index) },
+                                    onShuffle = {
+                                        shuffle = true
+                                        queue.setShuffle(true)
+                                        play(artist.tracks, 0)
+                                    },
                                     modifier = contentModifier,
                                 )
                             else -> {
@@ -640,7 +649,7 @@ private fun ArtistRow(
                 .padding(horizontal = 16.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        ArtistCollage(artist = artist, seed = collageSeed, size = 40.dp)
+        ArtistCollage(artist = artist, seed = collageSeed, size = 40.dp, circle = true)
         Spacer(modifier = Modifier.width(12.dp))
         RowContent(title = artist.name, subtitle = subtitle)
     }
@@ -693,43 +702,110 @@ private fun AlbumDetail(
     }
 }
 
+/**
+ * An artist profile: a large circular collage of their albums, the counts, play and shuffle for the
+ * whole artist, and the albums themselves.
+ */
 @Composable
 private fun ArtistDetail(
     artist: Artist,
-    current: Track?,
     collageSeed: String,
+    dateFormat: String,
     onBack: () -> Unit,
     onOpenAlbum: (Album) -> Unit,
     onPlay: (Int) -> Unit,
+    onShuffle: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val cover = rememberArtwork(artist.tracks)
-
     Column(modifier = modifier) {
-        DetailHeader(
-            title = artist.name,
-            subtitle =
-                count(artist.albums.size, "album") + " · " + count(artist.tracks.size, "song"),
-            cover = cover,
-            reserveCover = true,
-            onBack = onBack,
-            collage = { ArtistCollage(artist = artist, seed = collageSeed, size = 72.dp) },
-        )
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            IconButton(onClick = onBack) {
+                Icon(imageVector = AuxioIcons.ArrowBack, contentDescription = "Back")
+            }
+        }
 
         LazyColumn(modifier = Modifier.fillMaxSize()) {
+            item {
+                Column(
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    ArtistCollage(
+                        artist = artist,
+                        seed = collageSeed,
+                        size = 200.dp,
+                        circle = true,
+                    )
+                    Spacer(modifier = Modifier.size(20.dp))
+                    Text(
+                        text = "Artist",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Text(
+                        text = artist.name,
+                        style = MaterialTheme.typography.headlineMedium,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(
+                        text = "Music",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(modifier = Modifier.size(6.dp))
+                    Text(
+                        text =
+                            count(artist.albums.size, "album") +
+                                " • " +
+                                count(artist.tracks.size, "song"),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(modifier = Modifier.size(16.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        Button(
+                            onClick = { onPlay(0) },
+                            modifier = Modifier.weight(1f),
+                            contentPadding = PaddingValues(vertical = 12.dp),
+                        ) {
+                            Icon(imageVector = AuxioIcons.PlayArrow, contentDescription = null)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Play")
+                        }
+                        OutlinedButton(
+                            onClick = onShuffle,
+                            modifier = Modifier.weight(1f),
+                            contentPadding = PaddingValues(vertical = 12.dp),
+                        ) {
+                            Icon(imageVector = AuxioIcons.Shuffle, contentDescription = null)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Shuffle")
+                        }
+                    }
+                }
+
+                Text(
+                    text = "Albums",
+                    style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                )
+            }
+
             items(artist.albums) { album ->
                 EntryRow(
                     title = album.name,
-                    subtitle = count(album.tracks.size, "song"),
+                    subtitle =
+                        Dates.format(album.date ?: album.year?.toString(), dateFormat).orEmpty(),
+                    artwork = rememberArtwork(album.tracks),
                     onClick = { onOpenAlbum(album) },
-                )
-            }
-            itemsIndexed(artist.tracks) { index, track ->
-                TrackRow(
-                    track = track,
-                    subtitle = track.album.orEmpty(),
-                    playing = current?.id == track.id,
-                    onClick = { onPlay(index) },
                 )
             }
         }
@@ -758,7 +834,6 @@ private fun DetailHeader(
     onBack: () -> Unit,
     cover: ImageBitmap? = null,
     reserveCover: Boolean = cover != null,
-    collage: (@Composable () -> Unit)? = null,
 ) {
     Row(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 8.dp),
@@ -770,10 +845,7 @@ private fun DetailHeader(
             Text("Back")
         }
         Spacer(modifier = Modifier.width(8.dp))
-        if (collage != null) {
-            collage()
-            Spacer(modifier = Modifier.width(12.dp))
-        } else if (reserveCover) {
+        if (reserveCover) {
             Cover(bitmap = cover, size = 72.dp)
             Spacer(modifier = Modifier.width(12.dp))
         }
@@ -827,20 +899,47 @@ private fun Cover(bitmap: ImageBitmap?, size: Dp) {
  * seed and the artist's name, so the arrangement looks random but is stable between launches.
  */
 @Composable
-internal fun ArtistCollage(artist: Artist, seed: String, size: Dp) {
+internal fun ArtistCollage(
+    artist: Artist,
+    seed: String,
+    size: Dp,
+    circle: Boolean = false,
+) {
     val albums = remember(artist.name, seed) { collageAlbums(artist, seed) }
-    val covers = albums.take(4).map { rememberArtwork(it.tracks) }
+    val covers = albums.take(4).mapNotNull { rememberArtwork(it.tracks) }
+    val shape = if (circle) CircleShape else RoundedCornerShape(6.dp)
 
-    if (covers.isEmpty() || covers.all { it == null }) {
-        Cover(bitmap = covers.firstOrNull(), size = size)
+    // One album (or one cover): fill the whole shape rather than half of a 2x2 grid.
+    if (covers.size <= 1) {
+        Box(
+            modifier =
+                Modifier.size(size)
+                    .clip(shape)
+                    .background(MaterialTheme.colorScheme.surfaceVariant),
+            contentAlignment = Alignment.Center,
+        ) {
+            val image = covers.firstOrNull()
+            if (image != null) {
+                Image(
+                    bitmap = image,
+                    contentDescription = null,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop,
+                )
+            } else {
+                Icon(
+                    imageVector = AuxioIcons.MusicNote,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
         return
     }
 
     Box(
         modifier =
-            Modifier.size(size)
-                .clip(RoundedCornerShape(6.dp))
-                .background(MaterialTheme.colorScheme.surfaceVariant)
+            Modifier.size(size).clip(shape).background(MaterialTheme.colorScheme.surfaceVariant)
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
             covers.chunked(2).forEach { row ->

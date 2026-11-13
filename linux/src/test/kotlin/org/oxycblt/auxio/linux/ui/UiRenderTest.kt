@@ -19,8 +19,11 @@
 package org.oxycblt.auxio.linux.ui
 
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.darkColorScheme
@@ -106,8 +109,14 @@ class UiRenderTest {
                 click(300f, 170f)
                 shot("album-detail")
 
-                click(40f, 115f)
+                click(60f, 141f)
                 shot("back")
+
+                click(921f, 122f)
+                shot("artists")
+
+                click(300f, 170f)
+                shot("artist")
 
                 click(1060f, 52f)
                 shot("settings")
@@ -117,8 +126,8 @@ class UiRenderTest {
 
             val rendered = Files.list(output).use { it.toList() }
             assertTrue(
-                rendered.size == 5,
-                "expected five frames, got ${rendered.map { it.fileName }}",
+                rendered.size == 7,
+                "expected seven frames, got ${rendered.map { it.fileName }}",
             )
             println("RENDERED $output")
         } finally {
@@ -224,11 +233,18 @@ class UiRenderTest {
         val output = root.resolve("collage.png")
 
         val scene =
-            ImageComposeScene(width = 320, height = 320) {
+            ImageComposeScene(width = 560, height = 280) {
                 MaterialTheme(colorScheme = darkColorScheme()) {
                     Surface {
-                        Column(modifier = Modifier.padding(24.dp)) {
-                            ArtistCollage(artist = artist, seed = "auxio", size = 240.dp)
+                        Row(modifier = Modifier.padding(20.dp)) {
+                            ArtistCollage(artist = artist, seed = "auxio", size = 200.dp)
+                            Spacer(Modifier.width(20.dp))
+                            ArtistCollage(
+                                artist = artist,
+                                seed = "auxio",
+                                size = 200.dp,
+                                circle = true,
+                            )
                         }
                     }
                 }
@@ -250,10 +266,17 @@ class UiRenderTest {
         val output = Files.createTempDirectory("auxio-wave").resolve("wave.png")
 
         val scene =
-            ImageComposeScene(width = 640, height = 120) {
+            ImageComposeScene(width = 640, height = 180) {
                 MaterialTheme(colorScheme = darkColorScheme()) {
                     Surface {
                         Column(modifier = Modifier.padding(24.dp)) {
+                            WaveProgress(
+                                progress = 0.62f,
+                                enabled = true,
+                                playing = true,
+                                onSeek = {},
+                                modifier = Modifier.fillMaxWidth(),
+                            )
                             WaveProgress(
                                 progress = 0.62f,
                                 enabled = true,

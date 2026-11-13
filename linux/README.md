@@ -12,7 +12,9 @@ with previous/next, automatic advance when a track ends, **shuffle** and **repea
 one**. The progress bar is Material 3's expressive wavy progress indicator with a thumb, inside a
 taller touch target so it still seeks on click or drag; the wave freezes when playback pauses.
 Cover art is shown for the current album, artist and track: the picture embedded in the file, or
-`cover.jpg`/`folder.jpg` (and similar names) from its folder. Artists are grouped
+`cover.jpg`/`folder.jpg` (and similar names) from its folder. An artist page shows a large
+circular collage of their album covers with play and shuffle for the whole artist, and the album
+rows underneath. Artists are grouped
 case-insensitively, so "x" and "X" are one artist shown with whichever spelling occurs most, and
 repeated names inside one tag are dropped. Album dates are read from the date tag and shown in a
 format chosen in settings, defaulting to your system's short date. A settings page also offers a
