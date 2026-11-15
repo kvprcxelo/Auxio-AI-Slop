@@ -75,11 +75,15 @@ Settings → Appearance. There are three sources:
   colour, then a GTK `accent_bg_color` from `gtk.css`. When nothing answers, Auxio's own purple is
   used.
 - **Matugen** builds the scheme from your wallpaper with [matugen](https://github.com/InioX/matugen).
-  It reads `matugen image <wallpaper> --json hex` and takes the dark scheme out of the dump. The
+  It reads `matugen image <wallpaper> --json hex` and takes the dark scheme out of the dump, in
+  either shape matugen has used for it (4.x keys each role with a colour per mode, earlier
+  versions nest the schemes). The
   wallpaper comes from the GNOME, KDE or hyprpaper settings unless you type a path in the field.
   matugen is optional: without it the desktop accent is used instead, and the settings say so.
 - **Deep customization** builds the scheme from a hue and a chroma you drag, and a palette type
-  (tonal spot, content, vibrant, expressive, neutral, monochrome).
+  (tonal spot, content, vibrant, expressive, neutral, monochrome). The type is not decoration: with
+  matugen it picks matugen's palette, and without it the built-in generator shifts the hue and
+  scales the chroma the same way, so Vibrant is louder and Monochrome is grey either way.
 
 With matugen installed it is the colour engine for every mode — desktop accents and custom seeds
 are passed to `matugen color hex` — so all three look like the same Material You scheme. Without

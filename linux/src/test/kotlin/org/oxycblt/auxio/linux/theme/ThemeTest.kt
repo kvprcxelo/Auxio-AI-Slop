@@ -59,6 +59,41 @@ class ThemeTest {
     }
 
     @Test
+    fun `reads the per-role dump matugen 4 writes`() {
+        val dump =
+            """
+            {
+              "base16": { "base00": { "dark": { "color": "#26110d" } } },
+              "colors": {
+                "background": { "dark": { "color": "#191110" }, "light": { "color": "#fff8f6" } },
+                "error": { "dark": { "color": "#ffb4ab" } },
+                "on_primary": { "dark": { "color": "#561f12" } },
+                "on_surface": { "dark": { "color": "#ecd5d0" } },
+                "outline": { "dark": { "color": "#9c8a86" } },
+                "primary": {
+                  "dark": { "color": "#ffb4a4" },
+                  "default": { "color": "#ffb4a4" },
+                  "light": { "color": "#904b3c" }
+                },
+                "secondary": { "dark": { "color": "#e8bdb4" } },
+                "surface": { "dark": { "color": "#191110" } }
+              },
+              "mode": "dark"
+            }
+            """
+                .trimIndent()
+
+        val roles = requireNotNull(Matugen.parse(dump))
+
+        // The dark variant is read, not the light one, and the base16 palette is not a role.
+        assertEquals("#ffb4a4", roles["primary"])
+        assertEquals("#191110", roles["surface"])
+        assertEquals("#ffb4ab", roles["error"])
+        assertNull(roles["base00"])
+        assertNull(roles["color"])
+    }
+
+    @Test
     fun `maps matugen roles onto a material scheme`() {
         val scheme = Themes.schemeOf(requireNotNull(Matugen.parse(matugenDump)))
 
@@ -148,23 +183,47 @@ class ThemeTest {
                 null,
             )
 
-        assertTrue(
-            abs(red.primary.toHsl()[0] - 5f) < 20f,
-            "red seed gave hue ${red.primary.toHsl()[0]}",
-        )
-        assertTrue(
-            abs(green.primary.toHsl()[0] - 130f) < 20f,
-            "green seed gave hue ${green.primary.toHsl()[0]}",
-        )
+        // Every engine nudges the hue (matugen's HCT quantises it); the direction has to hold.
+        val redHue = red.primary.toHsl()[0]
+        val greenHue = green.primary.toHsl()[0]
+        assertTrue(abs(redHue - 5f) < 30f, "red seed gave hue $redHue")
+        assertTrue(abs(greenHue - 130f) < 30f, "green seed gave hue $greenHue")
+        assertTrue(abs(redHue - greenHue) > 60f, "the two seeds should not meet in the middle")
         assertNotEquals(red.primary, green.primary)
 
-        val grey =
-            Themes.scheme(
-                ThemeSettings(mode = ThemeMode.CUSTOM, hue = 5f, chroma = 0f),
-                appearance,
-                null,
-            )
-        assertTrue(grey.primary.toHsl()[1] < 0.1f, "no chroma should mean no colour")
+        // matugen answers a chroma-less seed with its own default hue, so greyscale is a property
+        // of the built-in generator rather than of the theme mode.
+        val grey = ThemeSettings(mode = ThemeMode.CUSTOM, hue = 5f, chroma = 0f).seed
+        assertTrue(
+            Themes.Approximation.scheme(grey, SchemeType.TONAL_SPOT).primary.toHsl()[1] < 0.05f,
+            "no chroma should mean no colour",
+        )
+    }
+
+    @Test
+    fun `palette types change the built-in scheme`() {
+        val seed = Color(0xFFD94426)
+        val schemes = SchemeType.entries.associateWith { Themes.Approximation.scheme(seed, it) }
+        val primaries = schemes.values.map { it.primary }
+
+        assertEquals(
+            SchemeType.entries.size,
+            primaries.distinct().size,
+            "every palette should look different",
+        )
+
+        val vibrant = schemes.getValue(SchemeType.VIBRANT).primary.toHsl()[1]
+        val neutral = schemes.getValue(SchemeType.NEUTRAL).primary.toHsl()[1]
+        assertTrue(vibrant > neutral * 2f, "vibrant $vibrant should out-chroma neutral $neutral")
+        assertTrue(
+            schemes.getValue(SchemeType.MONOCHROME).primary.toHsl()[1] < 0.02f,
+            "monochrome should have no chroma left",
+        )
+
+        // A hue shift is what separates expressive from the spot palettes.
+        val spot = schemes.getValue(SchemeType.TONAL_SPOT).primary.toHsl()[0]
+        val expressive = schemes.getValue(SchemeType.EXPRESSIVE).primary.toHsl()[0]
+        assertTrue(abs(expressive - spot) > 10f, "expressive hue $expressive should shift")
     }
 
     @Test

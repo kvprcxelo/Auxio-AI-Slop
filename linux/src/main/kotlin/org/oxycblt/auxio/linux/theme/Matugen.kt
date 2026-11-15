@@ -32,6 +32,11 @@ import java.util.concurrent.TimeUnit
  */
 object Matugen {
     private val ROLE = Regex("\"([a-z_0-9]+)\"\\s*:\\s*\"(#[0-9a-fA-F]{6,8})\"")
+    private val ROLE_BLOCK = Regex("\"([a-z_0-9]+)\"\\s*:\\s*\\{")
+    private val COLOR = Regex("\"color\"\\s*:\\s*\"(#[0-9a-fA-F]{6,8})\"")
+
+    /** Fewer roles than this means the dump was not understood, not that the scheme is small. */
+    private const val MINIMUM_ROLES = 4
 
     /** The path to `matugen`, or null when it is not installed. */
     fun executable(): String? {
@@ -95,18 +100,39 @@ object Matugen {
     }
 
     /**
-     * The dark scheme out of a `--json hex` dump, which nests `amoled`, `dark` and `light` under
-     * `colors`. Roles come back keyed by their snake_case names.
+     * The dark scheme out of a `--json hex` dump, keyed by snake_case role name.
+     *
+     * Two shapes are in the wild. matugen 4 keys every role itself, with a colour per mode
+     * (`"primary": {"dark": {"color": "#…"}}`); earlier versions nested the schemes instead
+     * (`"colors": {"dark": {"primary": "#…"}}`). Both are read, since a user's matugen is whatever
+     * their distribution packages.
      */
     internal fun parse(json: String): Map<String, String>? {
         val colors = objectAt(json, "colors") ?: return null
-        val dark = objectAt(colors, "dark") ?: return null
 
-        return ROLE.findAll(dark)
-            .associate { it.groupValues[1] to it.groupValues[2] }
-            .takeIf {
-                it.isNotEmpty()
+        perRole(colors)
+            ?.takeIf { it.size >= MINIMUM_ROLES }
+            ?.let {
+                return it
             }
+
+        return objectAt(colors, "dark")
+            ?.let { dark ->
+                ROLE.findAll(dark).associate { it.groupValues[1] to it.groupValues[2] }
+            }
+            ?.takeIf { it.size >= MINIMUM_ROLES }
+    }
+
+    /** The 4.x shape: a block per role, each holding `dark`/`default`/`light` colours. */
+    private fun perRole(colors: String): Map<String, String>? {
+        val roles = mutableMapOf<String, String>()
+        ROLE_BLOCK.findAll(colors).forEach { match ->
+            val name = match.groupValues[1]
+            val block = objectAt(colors, name) ?: return@forEach
+            val dark = objectAt(block, "dark") ?: return@forEach
+            COLOR.find(dark)?.let { roles[name] = it.groupValues[1] }
+        }
+        return roles.takeIf { it.isNotEmpty() }
     }
 
     /** The `{…}` value of [key] in [json], sliced by brace depth so nested objects stay apart. */

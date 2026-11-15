@@ -84,7 +84,7 @@ object Themes {
     private fun fromSeed(seed: Color, settings: ThemeSettings): ColorScheme =
         (if (Matugen.isAvailable()) Matugen.fromColor(seed, settings.type.flag) else null)?.let(
             ::schemeOf
-        ) ?: Approximation.scheme(seed)
+        ) ?: Approximation.scheme(seed, settings.type)
 
     /** Reads matugen's snake_case roles into Compose's camelCase scheme. */
     internal fun schemeOf(roles: Map<String, String>): ColorScheme {
@@ -131,14 +131,37 @@ object Themes {
      * Stands in for matugen when it is not installed: the seed's hue carries the primary and
      * containers, chroma decides how far the greys lean into it, and every on-colour is set by
      * luminance rather than assumed, so a bright seed does not produce unreadable text.
+     *
+     * The palette types matugen offers are approximated too, by shifting and scaling the seed's hue
+     * and chroma, so picking Vibrant or Monochrome changes the scheme either way.
      */
     internal object Approximation {
         private const val SURFACE_LIGHTNESS = 0.07f
 
-        fun scheme(seed: Color): ColorScheme {
+        /** How a palette type leans the seed: hue offsets in degrees, chroma as a multiplier. */
+        private data class Palette(
+            val primaryHue: Float = 0f,
+            val secondaryHue: Float = 0f,
+            val tertiaryHue: Float = 60f,
+            val chroma: Float = 0.85f,
+        )
+
+        private fun palette(type: SchemeType): Palette =
+            when (type) {
+                SchemeType.TONAL_SPOT -> Palette()
+                SchemeType.CONTENT -> Palette(tertiaryHue = 55f, chroma = 1.1f)
+                SchemeType.VIBRANT -> Palette(secondaryHue = -10f, tertiaryHue = 70f, chroma = 1.7f)
+                SchemeType.EXPRESSIVE ->
+                    Palette(primaryHue = 15f, secondaryHue = 45f, tertiaryHue = 95f, chroma = 1.3f)
+                SchemeType.NEUTRAL -> Palette(tertiaryHue = 40f, chroma = 0.16f)
+                SchemeType.MONOCHROME -> Palette(secondaryHue = 0f, tertiaryHue = 0f, chroma = 0f)
+            }
+
+        fun scheme(seed: Color, type: SchemeType = SchemeType.TONAL_SPOT): ColorScheme {
             val hsl = seed.toHsl()
-            val hue = hsl[0]
-            val chroma = hsl[1].coerceIn(0f, 1f)
+            val palette = palette(type)
+            val hue = (hsl[0] + palette.primaryHue).mod(360f)
+            val chroma = (hsl[1] * palette.chroma).coerceIn(0f, 1f)
 
             fun tone(lightness: Float, saturation: Float): Color =
                 Color.hsl(hue, (chroma * saturation).coerceIn(0f, 1f), lightness)
@@ -149,11 +172,13 @@ object Themes {
             val onSurfaceVariant = tone(0.78f, 0.07f)
             val primary = tone(0.76f, 0.55f)
             val primaryContainer = tone(0.30f, 0.45f)
-            val secondary = tone(0.72f, 0.30f)
-            val secondaryContainer = tone(0.28f, 0.24f)
-            val tertiaryHue = (hue + 60f).mod(360f)
-            val tertiary = Color.hsl(tertiaryHue, chroma * 0.45f, 0.74f)
-            val tertiaryContainer = Color.hsl(tertiaryHue, chroma * 0.35f, 0.29f)
+            val secondaryHue = (hue + palette.secondaryHue).mod(360f)
+            val secondary = Color.hsl(secondaryHue, (chroma * 0.30f).coerceIn(0f, 1f), 0.72f)
+            val secondaryContainer =
+                Color.hsl(secondaryHue, (chroma * 0.24f).coerceIn(0f, 1f), 0.28f)
+            val tertiaryHue = (hue + palette.tertiaryHue).mod(360f)
+            val tertiary = Color.hsl(tertiaryHue, (chroma * 0.45f).coerceIn(0f, 1f), 0.74f)
+            val tertiaryContainer = Color.hsl(tertiaryHue, (chroma * 0.35f).coerceIn(0f, 1f), 0.29f)
 
             return darkColorScheme(
                 primary = primary,
