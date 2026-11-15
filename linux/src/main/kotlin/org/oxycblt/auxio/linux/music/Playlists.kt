@@ -24,6 +24,7 @@ import kotlin.io.path.extension
 import kotlin.io.path.isRegularFile
 import kotlin.io.path.nameWithoutExtension
 import kotlin.streams.asSequence
+import org.oxycblt.auxio.linux.Storage
 
 /**
  * A playlist read from an `.m3u`/`.m3u8` file.
@@ -37,13 +38,17 @@ data class Playlist(val name: String, val tracks: List<Track>)
 object Playlists {
     private val EXTENSIONS = setOf("m3u", "m3u8")
 
-    /** Playlists found under [roots], with entries matched against the scanned [songs]. */
+    /**
+     * Playlists found under [roots] or in `~/auxio/playlists`, with entries matched against the
+     * scanned [songs].
+     */
     fun load(roots: List<Path>, songs: List<Track>): List<Playlist> {
         if (songs.isEmpty()) return emptyList()
 
         val byPath = songs.associateBy { it.path.toAbsolutePath().normalize() }
 
-        return roots
+        return (roots + Storage.playlistDir)
+            .distinct()
             .filter { Files.isDirectory(it) }
             .flatMap { root -> files(root) }
             .sortedBy { it.fileName.toString().lowercase() }

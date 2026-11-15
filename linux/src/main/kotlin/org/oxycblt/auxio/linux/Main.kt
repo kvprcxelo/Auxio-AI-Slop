@@ -18,6 +18,9 @@
  
 package org.oxycblt.auxio.linux
 
+import androidx.compose.ui.graphics.painter.BitmapPainter
+import androidx.compose.ui.graphics.painter.Painter
+import androidx.compose.ui.res.loadImageBitmap
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
@@ -37,6 +40,7 @@ import org.oxycblt.auxio.linux.ui.AuxioApp
 fun main(args: Array<String>) {
     val roots = args.map { Path(it) }.filter { it.exists() }.ifEmpty { listOf(defaultMusicDir()) }
 
+    Storage.ensureDirectories()
     val library = LibraryScanner.scan(roots)
 
     val player =
@@ -54,6 +58,7 @@ fun main(args: Array<String>) {
                 exitApplication()
             },
             title = "Auxio",
+            icon = windowIcon(),
             state = rememberWindowState(width = 1100.dp, height = 720.dp),
         ) {
             AuxioApp(
@@ -65,6 +70,17 @@ fun main(args: Array<String>) {
         }
     }
 }
+
+/** The launcher icon, from the jar, so the window and taskbar match the AppImage. */
+private fun windowIcon(): Painter? =
+    runCatching {
+            BitmapPainter(
+                loadImageBitmap(
+                    Settings::class.java.getResourceAsStream("/logo.png") ?: return null
+                )
+            )
+        }
+        .getOrNull()
 
 private fun defaultMusicDir(): Path {
     val home = System.getProperty("user.home")

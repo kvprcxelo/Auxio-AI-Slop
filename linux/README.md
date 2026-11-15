@@ -7,8 +7,8 @@ other's toolchain: the Android build needs the SDK and NDK, this one needs a JDK
 ## Status
 
 It scans folders, reads tags through taglib, and browses the result as **songs, albums, artists,
-genres and playlists**, each with a detail view. Playlists are `.m3u`/`.m3u8` files found next to
-your music. Playing a song fills a queue from the list you started it in,
+genres and playlists**, each with a detail view. Playlists are `.m3u`/`.m3u8` files found in
+`~/auxio/playlists` or next to your music. Playing a song fills a queue from the list you started it in,
 with previous/next, automatic advance when a track ends, **shuffle** and **repeat all / repeat
 one**. The progress bar is Material 3's expressive wavy progress indicator with a thumb, inside a
 taller touch target so it still seeks on click or drag; the wave freezes when playback pauses.
@@ -21,8 +21,8 @@ repeated names inside one tag are dropped. Album dates are read from the date ta
 format chosen in settings, defaulting to your system's short date. A settings page also offers a
 library rescan, the metadata separators used to split multi-artist tags, and a switch that sorts
 `*Song` or `(Song)` under its first letter instead of the symbol. Titles fall back to file names
-when a file carries no tags. Album artist and disc numbers are not read yet, and there are no
-playlists, MPRIS, search ranking or ReplayGain.
+when a file carries no tags. Album artist and disc numbers are not read yet, and playlists are
+read-only, with no MPRIS, search ranking or ReplayGain.
 
 ## Requirements
 
@@ -40,10 +40,25 @@ Could not start playback: libmpv was not found. Install it with your package man
 (for example `mpv-libs` or `libmpv2`).
 ```
 
+## Files
+
+Auxio keeps its own files in the usual places:
+
+| What | Where |
+| --- | --- |
+| Settings | `$XDG_CONFIG_HOME/auxio/config` (`~/.config/auxio/config`) |
+| Cover cache | `$XDG_CACHE_HOME/auxio/` (`~/.cache/auxio/`) |
+| Playlists | `~/auxio/playlists` |
+
+The cover cache holds the pictures pulled out of tags and folders, so a launch does not re-read
+every file. It is safe to delete; it is rebuilt as covers are needed. Playlists in
+`~/auxio/playlists` are read on every scan of the library, alongside any `.m3u`/`.m3u8` files next
+to your music.
+
 ## Settings
 
-Settings live in `$XDG_CONFIG_HOME/auxio/settings.properties` (defaulting to
-`~/.config/auxio/settings.properties`):
+The settings file is `$XDG_CONFIG_HOME/auxio/config` (defaulting to `~/.config/auxio/config`).
+Older builds wrote `auxio/settings.properties`; that file is moved over on the first launch:
 
 - `metadata.separators` — any artist tag containing one of those characters is split into
   separate artists, so `A; B` lists under both. Albums keep their raw tag, so compilations stay

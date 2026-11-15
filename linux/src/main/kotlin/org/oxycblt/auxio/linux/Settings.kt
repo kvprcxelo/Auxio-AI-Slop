@@ -21,7 +21,6 @@ package org.oxycblt.auxio.linux
 import java.nio.file.Files
 import java.nio.file.Path
 import java.util.Properties
-import kotlin.io.path.Path
 import org.oxycblt.auxio.linux.music.Dates
 
 /**
@@ -54,10 +53,9 @@ object Settings {
     const val DEFAULT_COLLAGE_SEED = "auxio"
 
     private val file: Path by lazy {
-        val base =
-            System.getenv("XDG_CONFIG_HOME")?.takeIf { it.isNotBlank() }?.let { Path(it) }
-                ?: Path(System.getProperty("user.home"), ".config")
-        base.resolve("auxio/settings.properties")
+        // Renames the pre-0.7 settings file once, so preferences survive the move to `config`.
+        Storage.migrateLegacyConfig()
+        Storage.configFile
     }
 
     fun separators(): String = properties().getProperty(SEPARATORS_KEY) ?: DEFAULT_SEPARATORS

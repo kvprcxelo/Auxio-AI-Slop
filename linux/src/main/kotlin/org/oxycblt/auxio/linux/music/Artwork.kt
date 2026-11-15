@@ -34,8 +34,9 @@ object Artwork {
 
     private val EXTENSIONS = listOf("jpg", "jpeg", "png", "webp")
 
-    fun bytes(track: Track): ByteArray? =
-        NativeTags.artwork(track.path) ?: folderCover(track.path.parent)
+    fun bytes(track: Track): ByteArray? = bytesFor(track.path)
+
+    fun bytesFor(path: Path): ByteArray? = NativeTags.artwork(path) ?: folderCover(path.parent)
 
     fun folderCover(directory: Path?): ByteArray? {
         if (directory == null || !Files.isDirectory(directory)) return null

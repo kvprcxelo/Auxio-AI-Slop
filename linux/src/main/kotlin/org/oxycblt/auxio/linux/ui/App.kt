@@ -85,7 +85,7 @@ import kotlinx.coroutines.withContext
 import org.oxycblt.auxio.linux.Settings
 import org.oxycblt.auxio.linux.music.Album
 import org.oxycblt.auxio.linux.music.Artist
-import org.oxycblt.auxio.linux.music.Artwork
+import org.oxycblt.auxio.linux.music.ArtworkStore
 import org.oxycblt.auxio.linux.music.Dates
 import org.oxycblt.auxio.linux.music.Genre
 import org.oxycblt.auxio.linux.music.Library
@@ -1081,7 +1081,7 @@ private fun rememberArtwork(tracks: List<Track>): ImageBitmap? {
         val found =
             withContext(Dispatchers.IO) {
                 tracks.firstNotNullOfOrNull { track ->
-                    Artwork.bytes(track)?.let { decodeArtwork(it) }
+                    ArtworkStore.bytes(track)?.let { decodeArtwork(it) }
                 }
             }
 
