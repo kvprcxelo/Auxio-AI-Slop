@@ -22,6 +22,7 @@ import java.nio.file.Files
 import java.nio.file.Path
 import java.security.MessageDigest
 import kotlin.io.path.absolute
+import org.oxycblt.auxio.linux.Settings
 import org.oxycblt.auxio.linux.Storage
 
 /**
@@ -30,9 +31,19 @@ import org.oxycblt.auxio.linux.Storage
  * Only the picture bytes are cached: decoding is cheap and the decoded bitmap would be an order of
  * magnitude larger. The key includes the file's size and modification time, so editing a file's
  * tags misses the old entry instead of showing the old cover.
+ *
+ * The cache is capped, evicting the least recently written covers first, because a large library
+ * would otherwise fill the disk a few hundred kilobytes at a time.
  */
 object ArtworkStore {
     private const val NO_ARTWORK_SUFFIX = ".none"
+    private const val BYTES_PER_MB = 1024L * 1024L
+    private const val TRIM_TARGET = 0.9
+
+    private val lock = Any()
+
+    /** Size of everything in the cache, or -1 while it has not been measured yet. */
+    private var knownBytes = -1L
 
     fun bytes(track: Track): ByteArray? = bytesFor(track.path)
 
@@ -51,17 +62,80 @@ object ArtworkStore {
 
         val found = Artwork.bytesFor(path)
         write(cacheDir, key, found)
+        enforceLimitIfNeeded()
         return found
     }
 
-    private fun write(cacheDir: Path, key: String, bytes: ByteArray?) {
-        runCatching {
-            Files.createDirectories(cacheDir)
-            if (bytes == null) {
-                Files.createFile(cacheDir.resolve(key + NO_ARTWORK_SUFFIX))
-            } else {
-                Files.write(cacheDir.resolve("$key.art"), bytes)
+    /** Applies the configured limit, for when it is lowered from the settings page. */
+    fun enforceLimit() {
+        trim(Storage.artworkCacheDir, limitBytes())
+    }
+
+    private fun enforceLimitIfNeeded() {
+        val limit = limitBytes()
+        val size = synchronized(lock) { knownBytes }
+        if (size < 0 || size > limit) trim(Storage.artworkCacheDir, limit)
+    }
+
+    private fun limitBytes(): Long = Settings.cacheLimitMb() * BYTES_PER_MB
+
+    private fun write(cacheDir: Path, key: String, bytes: ByteArray?): Long {
+        val written =
+            runCatching {
+                    Files.createDirectories(cacheDir)
+                    if (bytes == null) {
+                        val marker = cacheDir.resolve(key + NO_ARTWORK_SUFFIX)
+                        Files.write(marker, ByteArray(0))
+                        0L
+                    } else {
+                        val file = cacheDir.resolve("$key.art")
+                        Files.write(file, bytes)
+                        bytes.size.toLong()
+                    }
+                }
+                .getOrDefault(0L)
+
+        synchronized(lock) { if (knownBytes >= 0) knownBytes += written }
+        return written
+    }
+
+    /**
+     * Deletes the oldest entries until [directory] holds at most [limit] bytes, and returns what is
+     * left. Entries are trimmed a little below the limit so the next few covers do not trigger
+     * another walk of the cache.
+     */
+    internal fun trim(directory: Path, limit: Long): Long {
+        synchronized(lock) {
+            val entries =
+                runCatching {
+                        Files.list(directory).use { stream -> stream.toList() }
+                    }
+                    .getOrNull()
+                    ?: run {
+                        knownBytes = 0
+                        return 0
+                    }
+
+            val files = entries.mapNotNull { file ->
+                val size = runCatching { Files.size(file) }.getOrNull() ?: return@mapNotNull null
+                val used =
+                    runCatching { Files.getLastModifiedTime(file).toMillis() }.getOrDefault(0L)
+                CacheEntry(file, size, used)
             }
+
+            var total = files.sumOf { it.size }
+            if (total > limit) {
+                val target = (limit * TRIM_TARGET).toLong()
+                for (entry in files.sortedBy { it.used }) {
+                    if (total <= target) break
+                    if (runCatching { Files.deleteIfExists(entry.path) }.getOrDefault(false)) {
+                        total -= entry.size
+                    }
+                }
+            }
+
+            knownBytes = total
+            return total
         }
     }
 
@@ -77,4 +151,6 @@ object ArtworkStore {
             MessageDigest.getInstance("SHA-256").digest("$absolute|$size|$modified".toByteArray())
         return digest.joinToString("") { "%02x".format(it) }
     }
+
+    private data class CacheEntry(val path: Path, val size: Long, val used: Long)
 }

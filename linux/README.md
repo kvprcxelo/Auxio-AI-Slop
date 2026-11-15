@@ -51,7 +51,8 @@ Auxio keeps its own files in the usual places:
 | Playlists | `~/auxio/playlists` |
 
 The cover cache holds the pictures pulled out of tags and folders, so a launch does not re-read
-every file. It is safe to delete; it is rebuilt as covers are needed. Playlists in
+every file. It is safe to delete; it is rebuilt as covers are needed. It is capped at 500 MB by
+default, and once it passes that size the least recently stored covers are deleted. Playlists in
 `~/auxio/playlists` are read on every scan of the library, alongside any `.m3u`/`.m3u8` files next
 to your music.
 
@@ -71,6 +72,9 @@ Older builds wrote `auxio/settings.properties`; that file is moved over on the f
   so `*Song` and `(Song)` file under S.
 - `artists.collageSeed` — seeds the shuffle that arranges an artist's album covers into the
   collage on artist rows and headers. The same seed always gives the same arrangement.
+- `cache.maxSizeMb` — how large the cover cache may grow, in megabytes (500 by default). Past
+  that size the least recently stored covers are deleted; a deleted cover is read from its file
+  again the next time it is shown.
 
 Changes apply immediately.
 

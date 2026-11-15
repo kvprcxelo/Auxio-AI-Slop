@@ -122,6 +122,7 @@ fun AuxioApp(
     var dateFormat by remember { mutableStateOf(Settings.dateFormat()) }
     var ignorePunctuation by remember { mutableStateOf(Settings.ignoresLeadingPunctuation()) }
     var collageSeed by remember { mutableStateOf(Settings.collageSeed()) }
+    var cacheLimitMb by remember { mutableStateOf(Settings.cacheLimitMb()) }
     var section by remember { mutableStateOf(Section.Songs) }
     var openAlbum by remember { mutableStateOf<Album?>(null) }
     var openArtist by remember { mutableStateOf<Artist?>(null) }
@@ -324,6 +325,13 @@ fun AuxioApp(
                                 collageSeed = it
                                 Settings.collageSeed(it)
                             },
+                            cacheLimitMb = cacheLimitMb,
+                            onCacheLimitMb = {
+                                cacheLimitMb = it
+                                Settings.cacheLimitMb(it)
+                                // Dropping the limit should free the space straight away.
+                                scope.launch(Dispatchers.IO) { ArtworkStore.enforceLimit() }
+                            },
                             onRefresh = ::refresh,
                             onBack = { showSettings = false },
                             modifier = contentModifier,
@@ -477,12 +485,14 @@ private fun SettingsPage(
     dateFormat: String,
     ignorePunctuation: Boolean,
     collageSeed: String,
+    cacheLimitMb: Long,
     scanning: Boolean,
     songCount: Int,
     onSeparators: (String) -> Unit,
     onDateFormat: (String) -> Unit,
     onIgnorePunctuation: (Boolean) -> Unit,
     onCollageSeed: (String) -> Unit,
+    onCacheLimitMb: (Long) -> Unit,
     onRefresh: () -> Unit,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
@@ -622,6 +632,48 @@ private fun SettingsPage(
                     "Artist rows and headers show a collage of the artist's album covers, " +
                         "shuffled with this seed and the artist's name. The same seed always " +
                         "gives the same arrangement; change it to reshuffle every artist.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.width(720.dp),
+            )
+
+            Spacer(modifier = Modifier.size(16.dp))
+            HorizontalDivider()
+            Spacer(modifier = Modifier.size(16.dp))
+
+            Text(text = "Storage", style = MaterialTheme.typography.titleMedium)
+            Spacer(modifier = Modifier.size(8.dp))
+            Text(
+                text = "Cover cache limit",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(modifier = Modifier.size(8.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                OutlinedTextField(
+                    value = cacheLimitMb.toString(),
+                    onValueChange = { typed ->
+                        typed.filter(Char::isDigit).take(6).toLongOrNull()?.let(onCacheLimitMb)
+                    },
+                    singleLine = true,
+                    label = { Text("Megabytes") },
+                    suffix = { Text("MB") },
+                    modifier = Modifier.width(200.dp),
+                )
+                Spacer(modifier = Modifier.width(12.dp))
+                Text(
+                    text = "Default ${Settings.DEFAULT_CACHE_LIMIT_MB} MB",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Spacer(modifier = Modifier.size(8.dp))
+            Text(
+                text =
+                    "Covers pulled out of tags and folders are kept in ~/.cache/auxio so a scan " +
+                        "does not read every file again. Once the cache passes this size, the " +
+                        "least recently stored covers are deleted. Nothing is lost: a deleted " +
+                        "cover is read from its file the next time it is shown.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.width(720.dp),

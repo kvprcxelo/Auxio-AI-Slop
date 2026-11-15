@@ -37,6 +37,7 @@ object Settings {
     private const val DATE_FORMAT_KEY = "metadata.dateFormat"
     private const val SORT_PUNCTUATION_KEY = "sorting.ignoreLeadingPunctuation"
     private const val COLLAGE_SEED_KEY = "artists.collageSeed"
+    private const val CACHE_LIMIT_KEY = "cache.maxSizeMb"
 
     /** Date presets from before patterns existed, mapped to the equivalent token pattern. */
     private val LEGACY_DATE_FORMATS =
@@ -51,6 +52,12 @@ object Settings {
 
     /** Seed for the artist artwork collage; the same seed always gives the same arrangement. */
     const val DEFAULT_COLLAGE_SEED = "auxio"
+
+    /** Ceiling for the cover cache, in megabytes. */
+    const val DEFAULT_CACHE_LIMIT_MB = 500L
+
+    /** Smallest cache worth keeping; anything less would evict covers as they are extracted. */
+    const val MINIMUM_CACHE_LIMIT_MB = 16L
 
     private val file: Path by lazy {
         // Renames the pre-0.7 settings file once, so preferences survive the move to `config`.
@@ -89,6 +96,16 @@ object Settings {
 
     fun collageSeed(value: String) {
         put(COLLAGE_SEED_KEY, value)
+    }
+
+    /** How large the cover cache may grow before the oldest covers are evicted. */
+    fun cacheLimitMb(): Long =
+        properties().getProperty(CACHE_LIMIT_KEY)?.toLongOrNull()?.takeIf {
+            it >= MINIMUM_CACHE_LIMIT_MB
+        } ?: DEFAULT_CACHE_LIMIT_MB
+
+    fun cacheLimitMb(value: Long) {
+        put(CACHE_LIMIT_KEY, value.coerceAtLeast(MINIMUM_CACHE_LIMIT_MB).toString())
     }
 
     private fun put(key: String, value: String) {
