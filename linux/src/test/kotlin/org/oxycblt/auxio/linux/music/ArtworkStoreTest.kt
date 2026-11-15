@@ -23,6 +23,7 @@ import java.nio.file.Path
 import java.nio.file.attribute.FileTime
 import kotlin.io.path.exists
 import kotlin.test.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
@@ -42,6 +43,19 @@ class ArtworkStoreTest {
     }
 
     @Test
+    fun `bounds the empty markers left by songs without covers`() {
+        withCache(entries = 6, size = 0, suffix = ".none") { dir ->
+            val remaining = ArtworkStore.trim(dir, 500 * kilobyte, maxMarkers = 2)
+
+            assertEquals(0, remaining, "markers hold no data blocks")
+            assertFalse(dir.resolve("entry-0.none").exists())
+            assertFalse(dir.resolve("entry-3.none").exists())
+            assertTrue(dir.resolve("entry-4.none").exists())
+            assertTrue(dir.resolve("entry-5.none").exists())
+        }
+    }
+
+    @Test
     fun `leaves a cache under the limit alone`() {
         withCache(entries = 3, size = 100 * kilobyte) { dir ->
             val remaining = ArtworkStore.trim(dir, 500 * kilobyte)
@@ -51,11 +65,16 @@ class ArtworkStoreTest {
         }
     }
 
-    private fun withCache(entries: Int, size: Long, block: (Path) -> Unit) {
+    private fun withCache(
+        entries: Int,
+        size: Long,
+        suffix: String = ".art",
+        block: (Path) -> Unit,
+    ) {
         val dir = Files.createTempDirectory("auxio-artwork")
         try {
             repeat(entries) { index ->
-                val file = dir.resolve("entry-$index.art")
+                val file = dir.resolve("entry-$index$suffix")
                 Files.write(file, ByteArray(size.toInt()))
                 // Write order is also the eviction order.
                 Files.setLastModifiedTime(file, FileTime.fromMillis(1_000L + index))

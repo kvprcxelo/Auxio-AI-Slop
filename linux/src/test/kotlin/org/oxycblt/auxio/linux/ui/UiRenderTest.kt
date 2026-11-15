@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.MaterialTheme
@@ -282,25 +283,24 @@ class UiRenderTest {
     }
 
     @Test
-    fun `renders the wave progress bar`() {
-        val output = Files.createTempDirectory("auxio-wave").resolve("wave.png")
+    fun `renders the seek bar`() {
+        val output = Files.createTempDirectory("auxio-seek").resolve("seek.png")
 
         val scene =
             ImageComposeScene(width = 640, height = 180) {
                 MaterialTheme(colorScheme = darkColorScheme()) {
                     Surface {
                         Column(modifier = Modifier.padding(24.dp)) {
-                            WaveProgress(
+                            SeekBar(
                                 progress = 0.62f,
                                 enabled = true,
-                                playing = true,
                                 onSeek = {},
                                 modifier = Modifier.fillMaxWidth(),
                             )
-                            WaveProgress(
-                                progress = 0.62f,
-                                enabled = true,
-                                playing = false,
+                            Spacer(modifier = Modifier.height(24.dp))
+                            SeekBar(
+                                progress = 0.0f,
+                                enabled = false,
                                 onSeek = {},
                                 modifier = Modifier.fillMaxWidth(),
                             )
@@ -318,6 +318,6 @@ class UiRenderTest {
         }
 
         assertTrue(Files.size(output) > 500, "the bar did not draw")
-        println("WAVE $output")
+        println("SEEK $output")
     }
 }

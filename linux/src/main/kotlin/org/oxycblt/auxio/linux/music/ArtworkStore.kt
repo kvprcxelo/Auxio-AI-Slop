@@ -39,11 +39,24 @@ object ArtworkStore {
     private const val NO_ARTWORK_SUFFIX = ".none"
     private const val BYTES_PER_MB = 1024L * 1024L
     private const val TRIM_TARGET = 0.9
+    private const val BLOCK_SIZE = 512L
+
+    /**
+     * "No artwork here" markers are empty, so they never free themselves through the size limit. A
+     * large library without covers would otherwise leave one per song forever.
+     */
+    internal const val MAX_MARKERS = 2_000
 
     private val lock = Any()
 
     /** Size of everything in the cache, or -1 while it has not been measured yet. */
     private var knownBytes = -1L
+
+    /** Number of "no artwork" markers, or -1 while it has not been counted yet. */
+    private var knownMarkers = -1L
+
+    /** The limit is read from the settings file once, then reused on every write. */
+    private var cachedLimit = -1L
 
     fun bytes(track: Track): ByteArray? = bytesFor(track.path)
 
@@ -66,18 +79,29 @@ object ArtworkStore {
         return found
     }
 
-    /** Applies the configured limit, for when it is lowered from the settings page. */
+    /** Applies the configured limit, for when it is changed from the settings page. */
     fun enforceLimit() {
+        synchronized(lock) { cachedLimit = Settings.cacheLimitMb() * BYTES_PER_MB }
         trim(Storage.artworkCacheDir, limitBytes())
     }
 
     private fun enforceLimitIfNeeded() {
         val limit = limitBytes()
-        val size = synchronized(lock) { knownBytes }
-        if (size < 0 || size > limit) trim(Storage.artworkCacheDir, limit)
+        val (size, markers) = synchronized(lock) { knownBytes to knownMarkers }
+        // Markers are empty, so only the count can tell that they are piling up.
+        if (size < 0 || markers < 0 || size > limit || markers > MAX_MARKERS) {
+            trim(Storage.artworkCacheDir, limit)
+        }
     }
 
-    private fun limitBytes(): Long = Settings.cacheLimitMb() * BYTES_PER_MB
+    private fun limitBytes(): Long {
+        val cached = cachedLimit
+        if (cached > 0) return cached
+
+        val limit = Settings.cacheLimitMb() * BYTES_PER_MB
+        synchronized(lock) { cachedLimit = limit }
+        return limit
+    }
 
     private fun write(cacheDir: Path, key: String, bytes: ByteArray?): Long {
         val written =
@@ -95,7 +119,10 @@ object ArtworkStore {
                 }
                 .getOrDefault(0L)
 
-        synchronized(lock) { if (knownBytes >= 0) knownBytes += written }
+        synchronized(lock) {
+            if (knownBytes >= 0) knownBytes += written
+            if (bytes == null && knownMarkers >= 0) knownMarkers++
+        }
         return written
     }
 
@@ -104,7 +131,7 @@ object ArtworkStore {
      * left. Entries are trimmed a little below the limit so the next few covers do not trigger
      * another walk of the cache.
      */
-    internal fun trim(directory: Path, limit: Long): Long {
+    internal fun trim(directory: Path, limit: Long, maxMarkers: Int = MAX_MARKERS): Long {
         synchronized(lock) {
             val entries =
                 runCatching {
@@ -117,27 +144,61 @@ object ArtworkStore {
                     }
 
             val files = entries.mapNotNull { file ->
-                val size = runCatching { Files.size(file) }.getOrNull() ?: return@mapNotNull null
+                val size = diskUsage(file) ?: return@mapNotNull null
                 val used =
                     runCatching { Files.getLastModifiedTime(file).toMillis() }.getOrDefault(0L)
-                CacheEntry(file, size, used)
+                CacheEntry(file, size, used, file.fileName.toString().endsWith(NO_ARTWORK_SUFFIX))
             }
 
             var total = files.sumOf { it.size }
+
+            var markers = files.count { it.marker }
+            if (markers > maxMarkers) {
+                for (entry in files.filter { it.marker }.sortedBy { it.used }) {
+                    if (markers <= maxMarkers) break
+                    if (delete(entry)) {
+                        total -= entry.size
+                        markers--
+                    }
+                }
+            }
+
             if (total > limit) {
                 val target = (limit * TRIM_TARGET).toLong()
                 for (entry in files.sortedBy { it.used }) {
                     if (total <= target) break
-                    if (runCatching { Files.deleteIfExists(entry.path) }.getOrDefault(false)) {
+                    // Entries already removed above no longer exist, so this is a no-op for them.
+                    if (delete(entry)) {
                         total -= entry.size
+                        if (entry.marker) markers--
                     }
                 }
             }
 
             knownBytes = total
+            knownMarkers = markers.toLong()
             return total
         }
     }
+
+    private fun delete(entry: CacheEntry): Boolean =
+        runCatching { Files.deleteIfExists(entry.path) }.getOrDefault(false)
+
+    /**
+     * Blocks actually allocated on disk, which is what the cache limit is about: a 1 KB cover still
+     * takes a 4 KB block, and directory overhead is not free either.
+     */
+    private fun diskUsage(file: Path): Long? =
+        runCatching { Files.size(file) }
+            .map { size ->
+                // The attribute is missing on filesystems that do not report allocations.
+                val blocks =
+                    runCatching { Files.getAttribute(file, "unix:blocks") as? Number }
+                        .getOrNull()
+                        ?.toLong() ?: 0L
+                if (blocks > 0) blocks * BLOCK_SIZE else size
+            }
+            .getOrNull()
 
     /** Null when the file is gone, in which case there is nothing worth caching. */
     private fun key(path: Path): String? {
@@ -152,5 +213,10 @@ object ArtworkStore {
         return digest.joinToString("") { "%02x".format(it) }
     }
 
-    private data class CacheEntry(val path: Path, val size: Long, val used: Long)
+    private data class CacheEntry(
+        val path: Path,
+        val size: Long,
+        val used: Long,
+        val marker: Boolean,
+    )
 }

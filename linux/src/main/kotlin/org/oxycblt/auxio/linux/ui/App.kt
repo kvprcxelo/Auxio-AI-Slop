@@ -31,6 +31,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -42,6 +43,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
+import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -1238,88 +1240,112 @@ private fun TransportBar(
     onVolume: (Double) -> Unit,
 ) {
     val cover = rememberArtwork(listOfNotNull(current))
+    val progress = if (duration > 0.0) (position / duration).toFloat() else 0f
 
     Surface(
         modifier = Modifier.fillMaxWidth(),
-        tonalElevation = 3.dp,
-        shape = RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp),
+        color = MaterialTheme.colorScheme.surfaceContainer,
+        shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
+        Column(
+            modifier =
+                Modifier.fillMaxWidth()
+                    .padding(start = 16.dp, end = 16.dp, top = 10.dp, bottom = 10.dp)
         ) {
-            Cover(bitmap = cover, size = 40.dp)
-            Spacer(modifier = Modifier.width(12.dp))
-            Text(
-                text = current?.title ?: "Nothing playing",
-                style = MaterialTheme.typography.bodyMedium,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                // The title takes whatever the controls leave, so long names are readable.
-                modifier = Modifier.weight(1f).padding(end = 8.dp),
-            )
-
-            IconButton(onClick = onCycleLoop) {
-                Icon(
-                    imageVector =
-                        if (loop == LoopMode.ONE) AuxioIcons.RepeatOne else AuxioIcons.Repeat,
-                    contentDescription =
-                        when (loop) {
-                            LoopMode.OFF -> "Repeat off"
-                            LoopMode.ALL -> "Repeat all"
-                            LoopMode.ONE -> "Repeat one"
-                        },
-                    tint =
-                        if (loop != LoopMode.OFF) MaterialTheme.colorScheme.primary
-                        else LocalContentColor.current,
-                )
-            }
-            IconButton(onClick = onPrevious, enabled = current != null) {
-                Icon(imageVector = AuxioIcons.SkipPrevious, contentDescription = "Previous")
-            }
-            IconButton(onClick = onTogglePause, enabled = current != null) {
-                Icon(
-                    imageVector = if (paused) AuxioIcons.PlayArrow else AuxioIcons.Pause,
-                    contentDescription = if (paused) "Play" else "Pause",
-                )
-            }
-            IconButton(onClick = onNext, enabled = current != null) {
-                Icon(imageVector = AuxioIcons.SkipNext, contentDescription = "Next")
-            }
-            IconButton(onClick = onToggleShuffle) {
-                Icon(
-                    imageVector = AuxioIcons.Shuffle,
-                    contentDescription = if (shuffle) "Shuffle on" else "Shuffle off",
-                    tint =
-                        if (shuffle) MaterialTheme.colorScheme.primary
-                        else LocalContentColor.current,
-                )
-            }
-
-            Spacer(modifier = Modifier.width(8.dp))
-            Text(text = formatTime(position), style = MaterialTheme.typography.labelSmall)
-            WaveProgress(
-                progress = if (duration > 0.0) (position / duration).toFloat() else 0f,
-                enabled = duration > 0.0,
-                playing = current != null && !paused,
-                onSeek = { fraction -> onSeek(fraction.toDouble()) },
-                // A fixed width keeps the thumb from racing across the window.
-                modifier = Modifier.width(280.dp).padding(horizontal = 8.dp),
-            )
-            Text(text = formatTime(duration), style = MaterialTheme.typography.labelSmall)
-
-            Spacer(modifier = Modifier.width(16.dp))
             Row(
+                modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.End,
             ) {
-                Text(text = "Vol", style = MaterialTheme.typography.labelSmall)
+                Cover(bitmap = cover, size = 56.dp)
+                Spacer(modifier = Modifier.width(14.dp))
+                Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                    Text(
+                        text = current?.title ?: "Nothing playing",
+                        style = MaterialTheme.typography.titleMedium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    val subtitle = current?.artist ?: current?.album.orEmpty()
+                    if (subtitle.isNotEmpty()) {
+                        Text(
+                            text = subtitle,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
+
+                Text(
+                    text = "${formatTime(position)} / ${formatTime(duration)}",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(modifier = Modifier.width(12.dp))
+
+                IconButton(onClick = onToggleShuffle) {
+                    Icon(
+                        imageVector = AuxioIcons.Shuffle,
+                        contentDescription = if (shuffle) "Shuffle on" else "Shuffle off",
+                        tint =
+                            if (shuffle) MaterialTheme.colorScheme.primary
+                            else LocalContentColor.current,
+                    )
+                }
+                IconButton(onClick = onPrevious, enabled = current != null) {
+                    Icon(imageVector = AuxioIcons.SkipPrevious, contentDescription = "Previous")
+                }
+                FilledTonalIconButton(
+                    onClick = onTogglePause,
+                    enabled = current != null,
+                    shape = RoundedCornerShape(18.dp),
+                    modifier = Modifier.padding(horizontal = 4.dp).size(52.dp),
+                ) {
+                    Icon(
+                        imageVector = if (paused) AuxioIcons.PlayArrow else AuxioIcons.Pause,
+                        contentDescription = if (paused) "Play" else "Pause",
+                    )
+                }
+                IconButton(onClick = onNext, enabled = current != null) {
+                    Icon(imageVector = AuxioIcons.SkipNext, contentDescription = "Next")
+                }
+                IconButton(onClick = onCycleLoop) {
+                    Icon(
+                        imageVector =
+                            if (loop == LoopMode.ONE) AuxioIcons.RepeatOne else AuxioIcons.Repeat,
+                        contentDescription =
+                            when (loop) {
+                                LoopMode.OFF -> "Repeat off"
+                                LoopMode.ALL -> "Repeat all"
+                                LoopMode.ONE -> "Repeat one"
+                            },
+                        tint =
+                            if (loop != LoopMode.OFF) MaterialTheme.colorScheme.primary
+                            else LocalContentColor.current,
+                    )
+                }
+
+                Spacer(modifier = Modifier.width(12.dp))
+                Text(
+                    text = "Vol",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
                 Slider(
                     value = (volume / 100.0).toFloat(),
                     onValueChange = { onVolume(it.toDouble() * 100.0) },
-                    modifier = Modifier.width(100.dp).padding(start = 12.dp, end = 4.dp),
+                    modifier = Modifier.width(96.dp).padding(start = 8.dp, end = 4.dp),
                 )
             }
+
+            Spacer(modifier = Modifier.height(6.dp))
+            SeekBar(
+                progress = progress,
+                enabled = duration > 0.0,
+                onSeek = { fraction -> onSeek(fraction.toDouble()) },
+                modifier = Modifier.fillMaxWidth(),
+            )
         }
     }
 }

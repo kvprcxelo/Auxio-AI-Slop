@@ -10,8 +10,9 @@ It scans folders, reads tags through taglib, and browses the result as **songs, 
 genres and playlists**, each with a detail view. Playlists are `.m3u`/`.m3u8` files found in
 `~/auxio/playlists` or next to your music. Playing a song fills a queue from the list you started it in,
 with previous/next, automatic advance when a track ends, **shuffle** and **repeat all / repeat
-one**. The progress bar is Material 3's expressive wavy progress indicator with a thumb, inside a
-taller touch target so it still seeks on click or drag; the wave freezes when playback pauses.
+one**. The transport bar shows cover art, title and artist, the five transport buttons, and
+Material 3's progress indicator underneath the row, inside a taller touch target so it seeks on
+click or drag.
 Cover art is shown for the current album, artist and track: the picture embedded in the file, or
 `cover.jpg`/`folder.jpg` (and similar names) from its folder. An artist page shows a large
 circular collage of their album covers with play and shuffle for the whole artist, and the album
@@ -52,7 +53,9 @@ Auxio keeps its own files in the usual places:
 
 The cover cache holds the pictures pulled out of tags and folders, so a launch does not re-read
 every file. It is safe to delete; it is rebuilt as covers are needed. It is capped at 500 MB by
-default, and once it passes that size the least recently stored covers are deleted. Playlists in
+default and measured in blocks allocated on disk rather than in file sizes; once it passes that
+size the least recently stored covers are deleted. Empty "no artwork" markers are capped at 2 000
+entries as well, since a library without covers would otherwise leave one per song. Playlists in
 `~/auxio/playlists` are read on every scan of the library, alongside any `.m3u`/`.m3u8` files next
 to your music.
 
