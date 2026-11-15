@@ -18,6 +18,7 @@
  
 package org.oxycblt.auxio.linux.ui
 
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
@@ -46,8 +47,9 @@ import androidx.compose.ui.unit.dp
  * thumb, so the thumb visibly drifted away from the wave as a track played. This is the plain
  * linear indicator, so there is one source of truth for the position and nothing to drift.
  *
- * Position is polled a few times a second, so the value is eased into place while playing and
- * snapped while dragging — a dragged bar belongs under the pointer.
+ * Position arrives in 100 ms steps and is animated over the same 100 ms, so one step blends into
+ * the next and the bar moves continuously; while dragging it snaps instead, because a dragged bar
+ * belongs under the pointer.
  */
 @Composable
 internal fun SeekBar(
@@ -62,7 +64,8 @@ internal fun SeekBar(
     val animated by
         animateFloatAsState(
             targetValue = clamped,
-            animationSpec = if (dragging) snap() else tween(durationMillis = 200),
+            animationSpec =
+                if (dragging) snap() else tween(durationMillis = 100, easing = LinearEasing),
             label = "seekBarProgress",
         )
 

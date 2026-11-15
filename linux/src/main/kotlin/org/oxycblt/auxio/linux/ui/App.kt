@@ -212,7 +212,7 @@ fun AuxioApp(
             duration = player.duration()
             // mpv reports pause=false while idle, so an empty queue is paused by definition.
             paused = queue.current == null || player.isPaused()
-            delay(250)
+            delay(100)
         }
     }
 
@@ -1344,7 +1344,7 @@ private fun TransportBar(
                     Slider(
                         value = (volume / 100.0).toFloat(),
                         onValueChange = { onVolume(it.toDouble() * 100.0) },
-                        modifier = Modifier.width(96.dp).padding(start = 8.dp, end = 4.dp),
+                        modifier = Modifier.width(168.dp).padding(start = 8.dp, end = 4.dp),
                     )
                 }
             }
