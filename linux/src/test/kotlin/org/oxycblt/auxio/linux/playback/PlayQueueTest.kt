@@ -68,6 +68,27 @@ class PlayQueueTest {
     }
 
     @Test
+    fun `starting a queue while paused begins playback`() {
+        assumeTrue(mpvAvailable(), "libmpv is not installed")
+
+        val dir = Files.createTempDirectory("auxio-unpause")
+        val player = MpvPlayer(audioDriver = "null")
+        try {
+            val queue = PlayQueue(player)
+            player.pause()
+
+            queue.setTracks(tracks(dir))
+
+            // mpv keeps `pause` across loadfile, so shuffling from a paused player used to load
+            // the first track and stay silent.
+            assertFalse(player.isPaused(), "starting the queue should start playing")
+        } finally {
+            player.close()
+            dir.toFile().deleteRecursively()
+        }
+    }
+
+    @Test
     fun `moves to the next track when playback ends`() {
         assumeTrue(mpvAvailable(), "libmpv is not installed")
 

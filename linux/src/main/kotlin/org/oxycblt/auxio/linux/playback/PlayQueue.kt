@@ -161,5 +161,7 @@ class PlayQueue(private val player: MpvPlayer, private val random: Random = Rand
         val track = current ?: return
         started = false
         player.load(track.path)
+        // mpv keeps `pause` across loadfile, so a queue started while paused has to unpause itself.
+        player.play()
     }
 }

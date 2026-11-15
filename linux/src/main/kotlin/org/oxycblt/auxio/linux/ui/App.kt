@@ -42,8 +42,10 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.FilledTonalIconButton
+import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -76,6 +78,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import java.awt.FileDialog
+import java.awt.Frame
+import java.awt.GraphicsEnvironment
 import java.io.ByteArrayInputStream
 import java.nio.file.Path
 import javax.imageio.ImageIO
@@ -94,6 +99,7 @@ import org.oxycblt.auxio.linux.music.Library
 import org.oxycblt.auxio.linux.music.LibraryScanner
 import org.oxycblt.auxio.linux.music.MusicLibrary
 import org.oxycblt.auxio.linux.music.Playlist
+import org.oxycblt.auxio.linux.music.Playlists
 import org.oxycblt.auxio.linux.music.Track
 import org.oxycblt.auxio.linux.playback.DebugLog
 import org.oxycblt.auxio.linux.playback.LoopMode
@@ -141,6 +147,9 @@ fun AuxioApp(
     var volume by remember { mutableStateOf(100.0) }
     var query by remember { mutableStateOf("") }
     var message by remember { mutableStateOf<Message?>(null) }
+    var creatingPlaylist by remember { mutableStateOf(false) }
+    var newPlaylistName by remember { mutableStateOf("") }
+    var playlistMenu by remember { mutableStateOf(false) }
 
     val separatorChars = remember(separators) { separators.toSet() }
     val currentLibrary =
@@ -177,6 +186,16 @@ fun AuxioApp(
         current = queue.current
     }
 
+    fun shufflePlay(tracks: List<Track>) {
+        val unique = tracks.distinctBy { it.id }
+        if (unique.isEmpty()) return
+
+        shuffle = true
+        queue.setShuffle(true)
+        // Shuffle order is rebuilt around the start track, so start somewhere random.
+        play(unique, unique.indices.random())
+    }
+
     fun toggleShuffle() {
         shuffle = !shuffle
         queue.setShuffle(shuffle)
@@ -185,6 +204,46 @@ fun AuxioApp(
     fun cycleLoop() {
         queue.cycleLoop()
         loop = queue.loop
+    }
+
+    fun reloadPlaylists() {
+        scope.launch {
+            val found = withContext(Dispatchers.IO) { Playlists.load(roots, songs) }
+            playlists = found
+        }
+    }
+
+    fun createPlaylist() {
+        val file = Playlists.create(newPlaylistName)
+        creatingPlaylist = false
+        newPlaylistName = ""
+        if (file == null) {
+            notify("Could not create that playlist", error = true)
+        } else {
+            notify("Created ${'$'}{file.fileName}")
+            reloadPlaylists()
+        }
+    }
+
+    fun importPlaylist() {
+        playlistMenu = false
+        val source = choosePlaylistFile() ?: return
+        val imported = Playlists.importFrom(source)
+        if (imported == null) {
+            notify("Could not import ${'$'}{source.fileName}", error = true)
+        } else {
+            notify("Imported ${'$'}{imported.fileName}")
+            reloadPlaylists()
+        }
+    }
+
+    if (creatingPlaylist) {
+        NewPlaylistDialog(
+            name = newPlaylistName,
+            onName = { newPlaylistName = it },
+            onCreate = ::createPlaylist,
+            onDismiss = { creatingPlaylist = false },
+        )
     }
 
     fun refresh() {
@@ -370,11 +429,7 @@ fun AuxioApp(
                                     onBack = { openArtist = null },
                                     onOpenAlbum = { openAlbum = it },
                                     onPlay = { index -> play(artist.tracks, index) },
-                                    onShuffle = {
-                                        shuffle = true
-                                        queue.setShuffle(true)
-                                        play(artist.tracks, 0)
-                                    },
+                                    onShuffle = { shufflePlay(artist.tracks) },
                                     modifier = contentModifier,
                                 )
                             genre != null ->
@@ -385,6 +440,7 @@ fun AuxioApp(
                                     current = current,
                                     onBack = { openGenre = null },
                                     onPlay = { index -> play(genre.tracks, index) },
+                                    onShuffle = { shufflePlay(genre.tracks) },
                                     modifier = contentModifier,
                                 )
                             playlist != null ->
@@ -395,6 +451,7 @@ fun AuxioApp(
                                     current = current,
                                     onBack = { openPlaylist = null },
                                     onPlay = { index -> play(playlist.tracks, index) },
+                                    onShuffle = { shufflePlay(playlist.tracks) },
                                     modifier = contentModifier,
                                 )
                             else -> {
@@ -409,40 +466,123 @@ fun AuxioApp(
                                         }
                                     }
 
-                                    when (section) {
-                                        Section.Songs ->
-                                            SongList(
-                                                tracks = visibleSongs,
-                                                current = current,
-                                                onPlay = { index -> play(visibleSongs, index) },
-                                                modifier = Modifier.fillMaxSize(),
-                                            )
-                                        Section.Albums ->
-                                            AlbumList(
-                                                albums = visibleAlbums,
-                                                dateFormat = dateFormat,
-                                                onOpen = { openAlbum = it },
-                                                modifier = Modifier.fillMaxSize(),
-                                            )
-                                        Section.Artists ->
-                                            ArtistList(
-                                                artists = visibleArtists,
-                                                collageSeed = collageSeed,
-                                                onOpen = { openArtist = it },
-                                                modifier = Modifier.fillMaxSize(),
-                                            )
-                                        Section.Genres ->
-                                            GenreList(
-                                                genres = visibleGenres,
-                                                onOpen = { openGenre = it },
-                                                modifier = Modifier.fillMaxSize(),
-                                            )
-                                        Section.Playlists ->
-                                            PlaylistList(
-                                                playlists = visiblePlaylists,
-                                                onOpen = { openPlaylist = it },
-                                                modifier = Modifier.fillMaxSize(),
-                                            )
+                                    Box(modifier = Modifier.fillMaxSize()) {
+                                        when (section) {
+                                            Section.Songs ->
+                                                SongList(
+                                                    tracks = visibleSongs,
+                                                    current = current,
+                                                    onPlay = { index -> play(visibleSongs, index) },
+                                                    modifier = Modifier.fillMaxSize(),
+                                                )
+                                            Section.Albums ->
+                                                AlbumList(
+                                                    albums = visibleAlbums,
+                                                    dateFormat = dateFormat,
+                                                    onOpen = { openAlbum = it },
+                                                    modifier = Modifier.fillMaxSize(),
+                                                )
+                                            Section.Artists ->
+                                                ArtistList(
+                                                    artists = visibleArtists,
+                                                    collageSeed = collageSeed,
+                                                    onOpen = { openArtist = it },
+                                                    modifier = Modifier.fillMaxSize(),
+                                                )
+                                            Section.Genres ->
+                                                GenreList(
+                                                    genres = visibleGenres,
+                                                    onOpen = { openGenre = it },
+                                                    modifier = Modifier.fillMaxSize(),
+                                                )
+                                            Section.Playlists ->
+                                                if (visiblePlaylists.isEmpty()) {
+                                                    EmptyPlaylists(
+                                                        onCreate = {
+                                                            newPlaylistName = ""
+                                                            creatingPlaylist = true
+                                                        },
+                                                        modifier = Modifier.fillMaxSize(),
+                                                    )
+                                                } else {
+                                                    PlaylistList(
+                                                        playlists = visiblePlaylists,
+                                                        onOpen = { openPlaylist = it },
+                                                        modifier = Modifier.fillMaxSize(),
+                                                    )
+                                                }
+                                        }
+
+                                        when {
+                                            section == Section.Playlists &&
+                                                visiblePlaylists.isNotEmpty() ->
+                                                Column(
+                                                    modifier =
+                                                        Modifier.align(Alignment.BottomEnd)
+                                                            .padding(20.dp),
+                                                    horizontalAlignment = Alignment.End,
+                                                ) {
+                                                    if (playlistMenu) {
+                                                        PlaylistActionsMenu(
+                                                            onCreate = {
+                                                                playlistMenu = false
+                                                                newPlaylistName = ""
+                                                                creatingPlaylist = true
+                                                            },
+                                                            onImport = ::importPlaylist,
+                                                        )
+                                                        Spacer(modifier = Modifier.height(12.dp))
+                                                    }
+                                                    FloatingActionButton(
+                                                        onClick = { playlistMenu = !playlistMenu },
+                                                        shape = RoundedCornerShape(20.dp),
+                                                        containerColor =
+                                                            MaterialTheme.colorScheme
+                                                                .primaryContainer,
+                                                    ) {
+                                                        Icon(
+                                                            imageVector = AuxioIcons.Plus,
+                                                            contentDescription = "Playlist actions",
+                                                        )
+                                                    }
+                                                }
+                                            section != Section.Playlists &&
+                                                sectionTracks(
+                                                        section,
+                                                        visibleSongs,
+                                                        visibleAlbums,
+                                                        visibleArtists,
+                                                        visibleGenres,
+                                                        visiblePlaylists,
+                                                    )
+                                                    .isNotEmpty() ->
+                                                FloatingActionButton(
+                                                    onClick = {
+                                                        shufflePlay(
+                                                            sectionTracks(
+                                                                section,
+                                                                visibleSongs,
+                                                                visibleAlbums,
+                                                                visibleArtists,
+                                                                visibleGenres,
+                                                                visiblePlaylists,
+                                                            )
+                                                        )
+                                                    },
+                                                    modifier =
+                                                        Modifier.align(Alignment.BottomEnd)
+                                                            .padding(20.dp),
+                                                    shape = RoundedCornerShape(20.dp),
+                                                    containerColor =
+                                                        MaterialTheme.colorScheme.primaryContainer,
+                                                ) {
+                                                    Icon(
+                                                        imageVector = AuxioIcons.Shuffle,
+                                                        contentDescription =
+                                                            "Shuffle ${'$'}{section.label.lowercase()}",
+                                                    )
+                                                }
+                                        }
                                     }
                                 }
                             }
@@ -479,6 +619,117 @@ fun AuxioApp(
             }
         }
     }
+}
+
+/** Songs a tab root can shuffle: everything the current list stands for. */
+private fun sectionTracks(
+    section: Section,
+    songs: List<Track>,
+    albums: List<Album>,
+    artists: List<Artist>,
+    genres: List<Genre>,
+    playlists: List<Playlist>,
+): List<Track> =
+    when (section) {
+        Section.Songs -> songs
+        Section.Albums -> albums.flatMap { it.tracks }
+        Section.Artists -> artists.flatMap { it.tracks }
+        Section.Genres -> genres.flatMap { it.tracks }
+        Section.Playlists -> playlists.flatMap { it.tracks }
+    }
+
+/** The empty playlists tab: the placeholder from the design, with a way out of it. */
+@Composable
+private fun EmptyPlaylists(onCreate: () -> Unit, modifier: Modifier = Modifier) {
+    Column(
+        modifier = modifier,
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        Icon(
+            imageVector = AuxioIcons.Playlist,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.size(64.dp),
+        )
+        Spacer(modifier = Modifier.height(12.dp))
+        Text(
+            text = "Your playlists will show up here.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(modifier = Modifier.height(12.dp))
+        Button(onClick = onCreate) { Text("New playlist") }
+    }
+}
+
+@Composable
+private fun NewPlaylistDialog(
+    name: String,
+    onName: (String) -> Unit,
+    onCreate: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("New playlist") },
+        text = {
+            OutlinedTextField(
+                value = name,
+                onValueChange = onName,
+                singleLine = true,
+                label = { Text("Name") },
+            )
+        },
+        confirmButton = {
+            TextButton(onClick = onCreate, enabled = name.isNotBlank()) { Text("Create") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+}
+
+/** The two ways to get a playlist into the library, opened from the corner button. */
+@Composable
+private fun PlaylistActionsMenu(onCreate: () -> Unit, onImport: () -> Unit) {
+    Surface(
+        shape = RoundedCornerShape(12.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        tonalElevation = 3.dp,
+        shadowElevation = 6.dp,
+    ) {
+        Column(modifier = Modifier.width(220.dp).padding(vertical = 8.dp)) {
+            MenuEntry(text = "Create new playlist", onClick = onCreate)
+            MenuEntry(text = "Import playlist", onClick = onImport)
+        }
+    }
+}
+
+@Composable
+private fun MenuEntry(text: String, onClick: () -> Unit) {
+    Text(
+        text = text,
+        style = MaterialTheme.typography.bodyMedium,
+        modifier =
+            Modifier.fillMaxWidth()
+                .clickable(onClick = onClick)
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+    )
+}
+
+/** Native file picker for an `.m3u`/`.m3u8` file; null when cancelled or off a desktop. */
+private fun choosePlaylistFile(): Path? {
+    if (GraphicsEnvironment.isHeadless()) return null
+
+    val dialog = FileDialog(null as Frame?, "Import playlist", FileDialog.LOAD)
+    dialog.setFilenameFilter { _, fileName ->
+        fileName.endsWith(".m3u", ignoreCase = true) ||
+            fileName.endsWith(".m3u8", ignoreCase = true)
+    }
+    dialog.isVisible = true
+
+    val directory = dialog.directory ?: return null
+    val file = dialog.file ?: return null
+    return Path.of(directory, file)
 }
 
 @Composable
@@ -1405,6 +1656,7 @@ private fun TrackCollectionDetail(
     current: Track?,
     onBack: () -> Unit,
     onPlay: (Int) -> Unit,
+    onShuffle: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Column(modifier = modifier) {
@@ -1415,6 +1667,30 @@ private fun TrackCollectionDetail(
             reserveCover = true,
             onBack = onBack,
         )
+
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Button(
+                onClick = { onPlay(0) },
+                modifier = Modifier.weight(1f),
+                contentPadding = PaddingValues(vertical = 12.dp),
+            ) {
+                Icon(imageVector = AuxioIcons.PlayArrow, contentDescription = null)
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Play")
+            }
+            OutlinedButton(
+                onClick = onShuffle,
+                modifier = Modifier.weight(1f),
+                contentPadding = PaddingValues(vertical = 12.dp),
+            ) {
+                Icon(imageVector = AuxioIcons.Shuffle, contentDescription = null)
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Shuffle")
+            }
+        }
 
         LazyColumn(modifier = Modifier.fillMaxSize()) {
             itemsIndexed(tracks) { index, track ->

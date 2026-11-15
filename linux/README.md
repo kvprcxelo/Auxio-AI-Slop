@@ -10,7 +10,9 @@ It scans folders, reads tags through taglib, and browses the result as **songs, 
 genres and playlists**, each with a detail view. Playlists are `.m3u`/`.m3u8` files found in
 `~/auxio/playlists` or next to your music. Playing a song fills a queue from the list you started it in,
 with previous/next, automatic advance when a track ends, **shuffle** and **repeat all / repeat
-one**. The transport bar shows cover art, title and artist, the five transport buttons, and
+one**. Every tab root has a **shuffle** button in the corner that shuffles that whole list and
+starts playing, and the shuffle buttons elsewhere (artist, genre and playlist pages) do the same.
+The transport bar shows cover art, title and artist, the five transport buttons, and
 Material 3's progress indicator underneath the row, inside a taller touch target so it seeks on
 click or drag.
 Cover art is shown for the current album, artist and track: the picture embedded in the file, or
@@ -22,8 +24,9 @@ repeated names inside one tag are dropped. Album dates are read from the date ta
 format chosen in settings, defaulting to your system's short date. A settings page also offers a
 library rescan, the metadata separators used to split multi-artist tags, and a switch that sorts
 `*Song` or `(Song)` under its first letter instead of the symbol. Titles fall back to file names
-when a file carries no tags. Album artist and disc numbers are not read yet, and playlists are
-read-only, with no MPRIS, search ranking or ReplayGain.
+when a file carries no tags. Album artist and disc numbers are not read yet, and playlists can be
+created and imported from the playlists tab but not yet edited track by track, with no MPRIS,
+search ranking or ReplayGain.
 
 ## Requirements
 
@@ -57,7 +60,8 @@ default and measured in blocks allocated on disk rather than in file sizes; once
 size the least recently stored covers are deleted. Empty "no artwork" markers are capped at 2 000
 entries as well, since a library without covers would otherwise leave one per song. Playlists in
 `~/auxio/playlists` are read on every scan of the library, alongside any `.m3u`/`.m3u8` files next
-to your music.
+to your music. Playlists created or imported in the playlists tab are written here; an import
+copies the file and makes its entries absolute, so relative paths still resolve after the move.
 
 ## Settings
 

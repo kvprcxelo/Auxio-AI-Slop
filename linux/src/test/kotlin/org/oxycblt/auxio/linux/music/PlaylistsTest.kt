@@ -19,6 +19,7 @@
 package org.oxycblt.auxio.linux.music
 
 import java.nio.file.Files
+import kotlin.io.path.nameWithoutExtension
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -42,6 +43,50 @@ class PlaylistsTest {
         assertEquals("Mix", playlists.single().name)
         // The absolute entry, the relative one, and nothing for the missing file.
         assertEquals(listOf("A", "B"), playlists.single().tracks.map { it.title })
+    }
+
+    @Test
+    fun `creates an empty playlist that shows up as a playlist`() {
+        val dir = Files.createTempDirectory("auxio-m3u-new")
+        val song = Files.writeString(dir.resolve("a.mp3"), "")
+
+        val created = Playlists.create("Late night", dir)
+
+        assertEquals("Late night.m3u", created?.fileName?.toString())
+        assertTrue(Files.exists(created!!))
+        // An empty file next to music is not a playlist; one created here is, even with nothing in
+        // it.
+        assertEquals(0, Playlists.load(listOf(dir), listOf(Track(song, "A"))).size)
+    }
+
+    @Test
+    fun `imports a playlist with absolute entries and keeps both copies`() {
+        val source = Files.createTempDirectory("auxio-m3u-import")
+        val song = Files.writeString(source.resolve("a.mp3"), "")
+        val playlist = source.resolve("Mix.m3u")
+        Files.writeString(playlist, "#EXTM3U\na.mp3\n")
+        val target = Files.createTempDirectory("auxio-m3u-target")
+
+        val imported = Playlists.importFrom(playlist, target)
+
+        assertEquals("Mix.m3u", imported?.fileName?.toString())
+        assertEquals(
+            "#EXTM3U\n${song.toAbsolutePath()}\n",
+            Files.readString(imported!!),
+        )
+        assertTrue(Files.exists(playlist))
+        assertEquals("Mix (2)", Playlists.importFrom(playlist, target)?.nameWithoutExtension)
+    }
+
+    @Test
+    fun `refuses playlist names that would leave the directory`() {
+        val dir = Files.createTempDirectory("auxio-m3u-unsafe")
+
+        assertEquals(
+            "..-..-etc-passwd.m3u",
+            Playlists.create("../../etc/passwd", dir)?.fileName?.toString(),
+        )
+        assertEquals(null, Playlists.create("   ", dir))
     }
 
     @Test

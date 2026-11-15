@@ -38,6 +38,8 @@ data class Playlist(val name: String, val tracks: List<Track>)
 object Playlists {
     private val EXTENSIONS = setOf("m3u", "m3u8")
 
+    private val UNSAFE_NAME = Regex("""[/\\:*?"<>|]""")
+
     /**
      * Playlists found under [roots] or in `~/auxio/playlists`, with entries matched against the
      * scanned [songs].
@@ -46,13 +48,85 @@ object Playlists {
         if (songs.isEmpty()) return emptyList()
 
         val byPath = songs.associateBy { it.path.toAbsolutePath().normalize() }
+        val managed = Storage.playlistDir.toAbsolutePath().normalize()
 
         return (roots + Storage.playlistDir)
             .distinct()
             .filter { Files.isDirectory(it) }
             .flatMap { root -> files(root) }
             .sortedBy { it.fileName.toString().lowercase() }
-            .mapNotNull { file -> parse(file, byPath) }
+            .mapNotNull { file ->
+                // Playlists created here may still be empty; elsewhere an empty file is not one.
+                parse(
+                    file,
+                    byPath,
+                    keepEmpty = file.toAbsolutePath().normalize().startsWith(managed),
+                )
+            }
+    }
+
+    /**
+     * Creates an empty playlist in [directory], named after [name], and returns its file.
+     *
+     * The name cannot contain path separators, so a playlist cannot escape the directory; a taken
+     * name gets a numeric suffix rather than overwriting the file it would have replaced.
+     */
+    fun create(name: String, directory: Path = Storage.playlistDir): Path? {
+        val base = name.trim().replace(UNSAFE_NAME, "-").trim()
+        if (base.isEmpty()) return null
+
+        return runCatching {
+                Files.createDirectories(directory)
+                uniqueFile(directory, base, "m3u").also { Files.writeString(it, "#EXTM3U\n") }
+            }
+            .getOrNull()
+    }
+
+    /**
+     * Copies a playlist file into [directory] and returns the copy.
+     *
+     * Entries are made absolute on the way, since relative ones would point at the source folder
+     * once the copy lives somewhere else.
+     */
+    fun importFrom(source: Path, directory: Path = Storage.playlistDir): Path? {
+        val extension = source.extension.lowercase()
+        if (extension !in EXTENSIONS) return null
+
+        return runCatching {
+                Files.createDirectories(directory)
+                uniqueFile(directory, source.nameWithoutExtension, extension).also {
+                    Files.writeString(it, absoluteEntries(source))
+                }
+            }
+            .getOrNull()
+    }
+
+    private fun absoluteEntries(source: Path): String {
+        val lines = runCatching { Files.readAllLines(source) }.getOrNull() ?: return "#EXTM3U\n"
+
+        return lines.joinToString("\n", postfix = "\n") { line ->
+            val trimmed = line.trim()
+            if (trimmed.isEmpty() || trimmed.startsWith("#")) {
+                line
+            } else {
+                runCatching {
+                        val path = Path.of(trimmed)
+                        val resolved = if (path.isAbsolute) path else source.parent?.resolve(path)
+                        (resolved ?: path).toAbsolutePath().normalize().toString()
+                    }
+                    .getOrDefault(trimmed)
+            }
+        }
+    }
+
+    private fun uniqueFile(directory: Path, base: String, extension: String): Path {
+        var candidate = directory.resolve("$base.$extension")
+        var index = 2
+        while (Files.exists(candidate)) {
+            candidate = directory.resolve("$base ($index).$extension")
+            index++
+        }
+        return candidate
     }
 
     private fun files(root: Path): List<Path> =
@@ -63,7 +137,7 @@ object Playlists {
                 .toList()
         }
 
-    private fun parse(file: Path, byPath: Map<Path, Track>): Playlist? {
+    private fun parse(file: Path, byPath: Map<Path, Track>, keepEmpty: Boolean): Playlist? {
         val lines = runCatching { Files.readAllLines(file) }.getOrNull() ?: return null
 
         val tracks =
@@ -77,6 +151,8 @@ object Playlists {
                     byPath[resolved.normalize()]
                 }
 
-        return if (tracks.isEmpty()) null else Playlist(file.nameWithoutExtension, tracks)
+        if (tracks.isEmpty() && !keepEmpty) return null
+
+        return Playlist(file.nameWithoutExtension, tracks)
     }
 }
