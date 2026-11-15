@@ -22,6 +22,9 @@ import java.nio.file.Files
 import java.nio.file.Path
 import java.util.Properties
 import org.oxycblt.auxio.linux.music.Dates
+import org.oxycblt.auxio.linux.theme.SchemeType
+import org.oxycblt.auxio.linux.theme.ThemeMode
+import org.oxycblt.auxio.linux.theme.ThemeSettings
 
 /**
  * Preferences, stored as a properties file under the XDG config directory.
@@ -38,6 +41,11 @@ object Settings {
     private const val SORT_PUNCTUATION_KEY = "sorting.ignoreLeadingPunctuation"
     private const val COLLAGE_SEED_KEY = "artists.collageSeed"
     private const val CACHE_LIMIT_KEY = "cache.maxSizeMb"
+    private const val THEME_MODE_KEY = "theme.mode"
+    private const val THEME_HUE_KEY = "theme.hue"
+    private const val THEME_CHROMA_KEY = "theme.chroma"
+    private const val THEME_WALLPAPER_KEY = "theme.wallpaper"
+    private const val THEME_TYPE_KEY = "theme.schemeType"
 
     /** Date presets from before patterns existed, mapped to the equivalent token pattern. */
     private val LEGACY_DATE_FORMATS =
@@ -108,9 +116,40 @@ object Settings {
         put(CACHE_LIMIT_KEY, value.coerceAtLeast(MINIMUM_CACHE_LIMIT_MB).toString())
     }
 
-    private fun put(key: String, value: String) {
+    /** Where the colour scheme comes from, and the knobs the chosen source reads. */
+    fun theme(): ThemeSettings =
+        ThemeSettings(
+            mode =
+                properties().getProperty(THEME_MODE_KEY)?.let { key ->
+                    ThemeMode.entries.firstOrNull { it.name == key }
+                } ?: ThemeMode.DESKTOP,
+            hue = properties().getProperty(THEME_HUE_KEY)?.toFloatOrNull() ?: ThemeSettings().hue,
+            chroma =
+                properties().getProperty(THEME_CHROMA_KEY)?.toFloatOrNull()
+                    ?: ThemeSettings().chroma,
+            wallpaper = properties().getProperty(THEME_WALLPAPER_KEY) ?: "",
+            type =
+                properties().getProperty(THEME_TYPE_KEY)?.let { key ->
+                    SchemeType.entries.firstOrNull { it.name == key }
+                } ?: SchemeType.TONAL_SPOT,
+        )
+
+    fun theme(value: ThemeSettings) {
+        put(
+            THEME_MODE_KEY to value.mode.name,
+            THEME_HUE_KEY to value.hue.toString(),
+            THEME_CHROMA_KEY to value.chroma.toString(),
+            THEME_WALLPAPER_KEY to value.wallpaper,
+            THEME_TYPE_KEY to value.type.name,
+        )
+    }
+
+    private fun put(key: String, value: String) = put(key to value)
+
+    /** One read and one write per change, since a slider reports every pixel of a drag. */
+    private fun put(vararg entries: Pair<String, String>) {
         val properties = properties()
-        properties.setProperty(key, value)
+        entries.forEach { (key, value) -> properties.setProperty(key, value) }
         runCatching {
             file.parent?.let { Files.createDirectories(it) }
             Files.newOutputStream(file).use { properties.store(it, "Auxio for Linux") }

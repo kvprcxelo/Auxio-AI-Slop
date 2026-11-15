@@ -24,9 +24,10 @@ repeated names inside one tag are dropped. Album dates are read from the date ta
 format chosen in settings, defaulting to your system's short date. A settings page also offers a
 library rescan, the metadata separators used to split multi-artist tags, and a switch that sorts
 `*Song` or `(Song)` under its first letter instead of the symbol. Titles fall back to file names
-when a file carries no tags. Album artist and disc numbers are not read yet, and playlists can be
-created and imported from the playlists tab but not yet edited track by track, with no MPRIS,
-search ranking or ReplayGain.
+when a file carries no tags. The window's colour scheme follows your desktop's accent, or your
+wallpaper through matugen, or a hue you pick — see [Theming](#theming). Album artist and disc
+numbers are not read yet, and playlists can be created and imported from the playlists tab but not
+yet edited track by track, with no MPRIS, search ranking or ReplayGain.
 
 ## Requirements
 
@@ -34,6 +35,7 @@ search ranking or ReplayGain.
 - **JDK 21**
 - **libmpv** — any of `libmpv2` (Debian/Ubuntu), `mpv-libs` (Fedora), `mpv` (Arch)
 - **cmake** and **ninja** — to build the taglib tag reader
+- Optional: **matugen** on your `PATH`, to draw the window in your wallpaper's colours
 - Optional for packaging: `appimagetool` (the script downloads it if absent)
 
 The player loads `libmpv` at runtime through JNA, so the library must be on the loader path.
@@ -63,6 +65,29 @@ entries as well, since a library without covers would otherwise leave one per so
 to your music. Playlists created or imported in the playlists tab are written here; an import
 copies the file and makes its entries absolute, so relative paths still resolve after the move.
 
+## Theming
+
+The window is drawn in a Material 3 scheme whose source colour you choose in
+Settings → Appearance. There are three sources:
+
+- **Desktop colours** (the default) reads the accent your desktop reports: the XDG appearance
+  portal's `accent-color` first, then GNOME's `gsettings`, then the KDE `kdeglobals` selection
+  colour, then a GTK `accent_bg_color` from `gtk.css`. When nothing answers, Auxio's own purple is
+  used.
+- **Matugen** builds the scheme from your wallpaper with [matugen](https://github.com/InioX/matugen).
+  It reads `matugen image <wallpaper> --json hex` and takes the dark scheme out of the dump. The
+  wallpaper comes from the GNOME, KDE or hyprpaper settings unless you type a path in the field.
+  matugen is optional: without it the desktop accent is used instead, and the settings say so.
+- **Deep customization** builds the scheme from a hue and a chroma you drag, and a palette type
+  (tonal spot, content, vibrant, expressive, neutral, monochrome).
+
+With matugen installed it is the colour engine for every mode — desktop accents and custom seeds
+are passed to `matugen color hex` — so all three look like the same Material You scheme. Without
+it, a built-in approximation takes over: the seed's hue and chroma carry the roles and every
+on-colour is chosen by luminance, so text stays readable whatever seed is picked.
+
+The port draws a dark window; the desktop's light/dark preference is not consulted.
+
 ## Settings
 
 The settings file is `$XDG_CONFIG_HOME/auxio/config` (defaulting to `~/.config/auxio/config`).
@@ -82,6 +107,11 @@ Older builds wrote `auxio/settings.properties`; that file is moved over on the f
 - `cache.maxSizeMb` — how large the cover cache may grow, in megabytes (500 by default). Past
   that size the least recently stored covers are deleted; a deleted cover is read from its file
   again the next time it is shown.
+- `theme.mode` — `DESKTOP` (the default), `MATUGEN` or `CUSTOM`.
+- `theme.hue` and `theme.chroma` — the seed the custom scheme is built from, in degrees and
+  percent.
+- `theme.wallpaper` — a wallpaper path for matugen; empty means whatever the desktop reports.
+- `theme.schemeType` — the matugen palette to build, e.g. `TONAL_SPOT` or `VIBRANT`.
 
 Changes apply immediately.
 

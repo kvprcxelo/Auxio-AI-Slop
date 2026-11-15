@@ -56,6 +56,9 @@ object Storage {
         System.getenv(variable)?.takeIf { it.isNotBlank() }?.let { Path(it) }
             ?: home.resolve(fallback)
 
+    /** A file under the XDG config home itself, where desktops keep their themes and wallpapers. */
+    fun configPath(name: String): Path = configDir.parent.resolve(name)
+
     /** Creates the directories Auxio writes to, so they exist to drop playlists into. */
     fun ensureDirectories() {
         runCatching {

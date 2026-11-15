@@ -45,6 +45,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.FilledTonalIconButton
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -54,6 +55,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.PrimaryTabRow
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
@@ -71,6 +73,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.toComposeImageBitmap
 import androidx.compose.ui.layout.ContentScale
@@ -84,6 +87,7 @@ import java.awt.GraphicsEnvironment
 import java.io.ByteArrayInputStream
 import java.nio.file.Path
 import javax.imageio.ImageIO
+import kotlin.math.roundToInt
 import kotlin.random.Random
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -105,6 +109,13 @@ import org.oxycblt.auxio.linux.playback.DebugLog
 import org.oxycblt.auxio.linux.playback.LoopMode
 import org.oxycblt.auxio.linux.playback.MpvPlayer
 import org.oxycblt.auxio.linux.playback.PlayQueue
+import org.oxycblt.auxio.linux.theme.Desktop
+import org.oxycblt.auxio.linux.theme.Matugen
+import org.oxycblt.auxio.linux.theme.SchemeType
+import org.oxycblt.auxio.linux.theme.ThemeMode
+import org.oxycblt.auxio.linux.theme.ThemeSettings
+import org.oxycblt.auxio.linux.theme.Themes
+import org.oxycblt.auxio.linux.theme.toHexString
 
 private enum class Section(val label: String) {
     Songs("Songs"),
@@ -123,6 +134,7 @@ fun AuxioApp(
     library: MusicLibrary,
     roots: List<Path>,
     initialSeparators: String = Settings.DEFAULT_SEPARATORS,
+    initialTheme: ThemeSettings = Settings.theme(),
 ) {
     var songs by remember { mutableStateOf(library.songs) }
     var playlists by remember { mutableStateOf(library.playlists) }
@@ -131,6 +143,8 @@ fun AuxioApp(
     var ignorePunctuation by remember { mutableStateOf(Settings.ignoresLeadingPunctuation()) }
     var collageSeed by remember { mutableStateOf(Settings.collageSeed()) }
     var cacheLimitMb by remember { mutableStateOf(Settings.cacheLimitMb()) }
+    var theme by remember { mutableStateOf(initialTheme) }
+    var scheme by remember { mutableStateOf(darkColorScheme()) }
     var section by remember { mutableStateOf(Section.Songs) }
     var openAlbum by remember { mutableStateOf<Album?>(null) }
     var openArtist by remember { mutableStateOf<Artist?>(null) }
@@ -150,6 +164,20 @@ fun AuxioApp(
     var creatingPlaylist by remember { mutableStateOf(false) }
     var newPlaylistName by remember { mutableStateOf("") }
     var playlistMenu by remember { mutableStateOf(false) }
+
+    val desktopAppearance = remember { Desktop.appearance() }
+    val desktopWallpaper = remember { Desktop.wallpaper() }
+    val matugenAvailable = remember { Matugen.isAvailable() }
+
+    LaunchedEffect(theme) {
+        // A slider reports every pixel; only the value it settles on is worth a new scheme.
+        delay(120)
+        scheme =
+            withContext(Dispatchers.IO) {
+                runCatching { Themes.scheme(theme, desktopAppearance, desktopWallpaper) }
+                    .getOrDefault(darkColorScheme())
+            }
+    }
 
     val separatorChars = remember(separators) { separators.toSet() }
     val currentLibrary =
@@ -314,7 +342,7 @@ fun AuxioApp(
             else currentLibrary.playlists.filter { it.name.contains(query, ignoreCase = true) }
         }
 
-    MaterialTheme(colorScheme = darkColorScheme()) {
+    MaterialTheme(colorScheme = scheme) {
         Surface(modifier = Modifier.fillMaxSize()) {
             Column(modifier = Modifier.fillMaxSize()) {
                 Row(
@@ -394,6 +422,14 @@ fun AuxioApp(
                                 scope.launch(Dispatchers.IO) { ArtworkStore.enforceLimit() }
                             },
                             onRefresh = ::refresh,
+                            theme = theme,
+                            desktopAccent = desktopAppearance.accent,
+                            desktopWallpaper = desktopWallpaper,
+                            matugenAvailable = matugenAvailable,
+                            onTheme = {
+                                theme = it
+                                Settings.theme(it)
+                            },
                             onBack = { showSettings = false },
                             modifier = contentModifier,
                         )
@@ -621,6 +657,35 @@ fun AuxioApp(
     }
 }
 
+/** One of the three colour sources, with the line that explains what it does. */
+@Composable
+private fun ThemeModeRow(mode: ThemeMode, selected: Boolean, onSelect: () -> Unit) {
+    Row(
+        modifier =
+            Modifier.fillMaxWidth()
+                .clip(RoundedCornerShape(12.dp))
+                .clickable(onClick = onSelect)
+                .padding(vertical = 4.dp, horizontal = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        RadioButton(selected = selected, onClick = onSelect)
+        Spacer(modifier = Modifier.width(8.dp))
+        Column {
+            Text(text = mode.label, style = MaterialTheme.typography.bodyLarge)
+            Text(
+                text = mode.description,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+@Composable
+private fun ColorSwatch(color: Color) {
+    Box(modifier = Modifier.size(22.dp).clip(CircleShape).background(color))
+}
+
 /** Songs a tab root can shuffle: everything the current list stands for. */
 private fun sectionTracks(
     section: Section,
@@ -746,6 +811,11 @@ private fun SettingsPage(
     onIgnorePunctuation: (Boolean) -> Unit,
     onCollageSeed: (String) -> Unit,
     onCacheLimitMb: (Long) -> Unit,
+    theme: ThemeSettings,
+    desktopAccent: Color?,
+    desktopWallpaper: Path?,
+    matugenAvailable: Boolean,
+    onTheme: (ThemeSettings) -> Unit,
     onRefresh: () -> Unit,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
@@ -759,6 +829,116 @@ private fun SettingsPage(
                     .verticalScroll(rememberScrollState())
                     .padding(horizontal = 16.dp, vertical = 8.dp)
         ) {
+            Text(text = "Appearance", style = MaterialTheme.typography.titleMedium)
+            Spacer(modifier = Modifier.size(4.dp))
+            Text(
+                text = "The colour scheme the whole window is drawn in.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(modifier = Modifier.size(8.dp))
+            ThemeMode.entries.forEach { mode ->
+                ThemeModeRow(
+                    mode = mode,
+                    selected = theme.mode == mode,
+                    onSelect = { onTheme(theme.copy(mode = mode)) },
+                )
+            }
+
+            Spacer(modifier = Modifier.size(8.dp))
+            when (theme.mode) {
+                ThemeMode.DESKTOP ->
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        ColorSwatch(desktopAccent ?: Desktop.DEFAULT_ACCENT)
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Text(
+                            text =
+                                desktopAccent?.let { "Desktop accent ${it.toHexString()}" }
+                                    ?: "No desktop accent found, so Auxio's own is used.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                ThemeMode.MATUGEN -> {
+                    OutlinedTextField(
+                        value = theme.wallpaper,
+                        onValueChange = { onTheme(theme.copy(wallpaper = it)) },
+                        singleLine = true,
+                        label = { Text("Wallpaper") },
+                        placeholder = {
+                            Text(desktopWallpaper?.toString() ?: "No wallpaper detected")
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Spacer(modifier = Modifier.size(8.dp))
+                    Text(
+                        text =
+                            if (matugenAvailable) {
+                                "matugen reads the wallpaper's colours. Leave the field empty to " +
+                                    "use the one the desktop reports."
+                            } else {
+                                "matugen is not installed, so the desktop accent is used instead. " +
+                                    "Install it to follow a wallpaper."
+                            },
+                        style = MaterialTheme.typography.bodySmall,
+                        color =
+                            if (matugenAvailable) MaterialTheme.colorScheme.onSurfaceVariant
+                            else MaterialTheme.colorScheme.error,
+                    )
+                }
+                ThemeMode.CUSTOM -> {
+                    Text(
+                        text = "Hue ${theme.hue.roundToInt()}°",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    Slider(
+                        value = theme.hue,
+                        onValueChange = { onTheme(theme.copy(hue = it)) },
+                        valueRange = 0f..360f,
+                    )
+                    Text(
+                        text = "Chroma ${theme.chroma.roundToInt()}%",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    Slider(
+                        value = theme.chroma,
+                        onValueChange = { onTheme(theme.copy(chroma = it)) },
+                        valueRange = 0f..100f,
+                    )
+                    Spacer(modifier = Modifier.size(8.dp))
+                    Text(text = "Palette", style = MaterialTheme.typography.bodyMedium)
+                    Spacer(modifier = Modifier.size(4.dp))
+                    SchemeType.entries.toList().chunked(3).forEach { row ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            row.forEach { type ->
+                                FilterChip(
+                                    selected = theme.type == type,
+                                    onClick = { onTheme(theme.copy(type = type)) },
+                                    label = { Text(type.label) },
+                                )
+                            }
+                        }
+                    }
+                    Spacer(modifier = Modifier.size(8.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        ColorSwatch(theme.seed)
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Text(
+                            text = "Seed colour ${theme.seed.toHexString()}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.size(16.dp))
+            HorizontalDivider()
+            Spacer(modifier = Modifier.size(16.dp))
+
             Text(text = "Library", style = MaterialTheme.typography.titleMedium)
             Spacer(modifier = Modifier.size(8.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
