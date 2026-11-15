@@ -53,6 +53,11 @@ class ThemeRenderTest {
         }
     }
 
+    private fun brightness(pixel: Int): Int {
+        val color = java.awt.Color(pixel)
+        return color.red + color.green + color.blue
+    }
+
     /** A green-to-magenta gradient, so a wallpaper scheme cannot be mistaken for the default. */
     private fun gradient(): Path {
         val image =
@@ -120,6 +125,56 @@ class ThemeRenderTest {
 
         val theme = ThemeSettings(mode = ThemeMode.CUSTOM, hue = 10f, chroma = 70f)
         assertTrue(Files.size(render(theme, "custom", height = 720, settings = false)) > 500)
+    }
+
+    @Test
+    fun `the first frame is already the custom scheme`() {
+        assumeTrue(
+            runCatching { Mpv.load() }.isSuccess,
+            "libmpv is not installed, so the player cannot be constructed",
+        )
+
+        val songs = tracks()
+        val theme = ThemeSettings(mode = ThemeMode.CUSTOM, hue = 10f, chroma = 80f)
+        val player = MpvPlayer(audioDriver = "null")
+        try {
+            val scene =
+                ImageComposeScene(width = 1100, height = 720) {
+                    AuxioApp(
+                        player = player,
+                        library = Library.build(songs),
+                        roots = listOf(songs.first().path.parent),
+                        initialSeparators = ";",
+                        initialTheme = theme,
+                    )
+                }
+            try {
+                // Exactly one frame: this is what the user sees before anything else happens.
+                val pixels = scene.render().encodeToData(EncodedImageFormat.PNG)!!
+                val image = javax.imageio.ImageIO.read(pixels.bytes.inputStream())
+
+                // The tab indicator is drawn in the scheme's primary. A warm seed makes it red,
+                // the stock palette makes it the lavender that used to flash at startup.
+                var indicator = 0
+                for (x in 86..134) {
+                    for (y in 140..156) {
+                        val pixel = image.getRGB(x, y)
+                        if (brightness(pixel) > brightness(indicator)) indicator = pixel
+                    }
+                }
+
+                val primary = java.awt.Color(indicator)
+                assertTrue(
+                    primary.red > primary.blue + 20,
+                    "the first frame still used the stock palette " +
+                        "(${primary.red}, ${primary.green}, ${primary.blue})",
+                )
+            } finally {
+                scene.close()
+            }
+        } finally {
+            player.close()
+        }
     }
 
     @Test

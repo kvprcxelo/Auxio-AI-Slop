@@ -144,7 +144,6 @@ fun AuxioApp(
     var collageSeed by remember { mutableStateOf(Settings.collageSeed()) }
     var cacheLimitMb by remember { mutableStateOf(Settings.cacheLimitMb()) }
     var theme by remember { mutableStateOf(initialTheme) }
-    var scheme by remember { mutableStateOf(darkColorScheme()) }
     var section by remember { mutableStateOf(Section.Songs) }
     var openAlbum by remember { mutableStateOf<Album?>(null) }
     var openArtist by remember { mutableStateOf<Artist?>(null) }
@@ -168,6 +167,12 @@ fun AuxioApp(
     val desktopAppearance = remember { Desktop.appearance() }
     val desktopWallpaper = remember { Desktop.wallpaper() }
     val matugenAvailable = remember { Matugen.isAvailable() }
+
+    // The first frame is already the real scheme: desktop and custom seeds are built here, and a
+    // wallpaper reuses its cached result instead of showing the old palette until matugen finishes.
+    var scheme by remember {
+        mutableStateOf(Themes.startingScheme(theme, desktopAppearance, desktopWallpaper))
+    }
 
     LaunchedEffect(theme) {
         // A slider reports every pixel; only the value it settles on is worth a new scheme.

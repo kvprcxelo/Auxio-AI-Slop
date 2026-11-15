@@ -77,6 +77,23 @@ class MatugenIntegrationTest {
     }
 
     @Test
+    fun `a wallpaper result is cached for the next launch`() {
+        assumeTrue(Matugen.isAvailable(), "matugen is not installed")
+
+        val wallpaper = gradient()
+        val settings = ThemeSettings(mode = ThemeMode.MATUGEN, wallpaper = wallpaper.toString())
+        val cache = ThemeCache(Files.createTempDirectory("auxio-theme-cache"))
+
+        val settled = Themes.scheme(settings, Desktop.Appearance(null), wallpaper, cache)
+        val next = Themes.startingScheme(settings, Desktop.Appearance(null), wallpaper, cache)
+
+        // The first frame of the next launch reads this back without running matugen.
+        assertEquals(settled.primary, next.primary)
+        assertEquals(settled.surface, next.surface)
+        assertEquals(settled.onSurfaceVariant, next.onSurfaceVariant)
+    }
+
+    @Test
     fun `a missing wallpaper falls back instead of failing`() {
         assumeTrue(Matugen.isAvailable(), "matugen is not installed")
 

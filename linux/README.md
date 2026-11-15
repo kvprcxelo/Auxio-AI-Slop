@@ -90,6 +90,12 @@ are passed to `matugen color hex` — so all three look like the same Material Y
 it, a built-in approximation takes over: the seed's hue and chroma carry the roles and every
 on-colour is chosen by luminance, so text stays readable whatever seed is picked.
 
+The scheme is built before the first frame, so launching never flashes a different palette: the
+desktop and custom modes run their one colour lookup up front, and a wallpaper reuses the roles
+matugen last produced for it, kept in `$XDG_CACHE_HOME/auxio/theme-roles` and keyed by the
+wallpaper's size, modification time and palette. Editing the wallpaper or switching palette
+misses that cache, and the window draws the accent scheme for the moment matugen takes to run.
+
 The port draws a dark window; the desktop's light/dark preference is not consulted.
 
 ## Settings

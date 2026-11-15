@@ -227,6 +227,67 @@ class ThemeTest {
     }
 
     @Test
+    fun `the cache round trips and rejects another key`() {
+        val cache = ThemeCache(Files.createTempDirectory("auxio-theme-cache"))
+        val roles = mapOf("primary" to "#ffb4a4", "surface" to "#191110")
+
+        cache.store("wall|1", roles)
+
+        assertEquals(roles, cache.roles("wall|1"))
+        assertNull(cache.roles("wall|2"), "another wallpaper should not reuse the palette")
+        assertNull(cache.roles("nothing"), "an empty cache reads as null")
+    }
+
+    @Test
+    fun `the cache survives a corrupt file`() {
+        val directory = Files.createTempDirectory("auxio-theme-corrupt")
+        Files.writeString(directory.resolve("theme-roles"), "garbage\nwithout-key\n")
+
+        assertNull(ThemeCache(directory).roles("wall|1"))
+    }
+
+    @Test
+    fun `the first frame matches the settled scheme for desktop and custom`() {
+        val appearance = Desktop.Appearance(accent = Color(0xFF3F6AAB))
+        val cache = ThemeCache(Files.createTempDirectory("auxio-theme-first"))
+
+        for (mode in listOf(ThemeMode.DESKTOP, ThemeMode.CUSTOM)) {
+            val settings = ThemeSettings(mode = mode, hue = 30f, chroma = 60f)
+            val settled = Themes.scheme(settings, appearance, null, cache)
+            val first = Themes.startingScheme(settings, appearance, null, cache)
+
+            assertEquals(settled.primary, first.primary, "$mode primary")
+            assertEquals(settled.surface, first.surface, "$mode surface")
+            assertEquals(settled.onSurfaceVariant, first.onSurfaceVariant, "$mode text")
+        }
+    }
+
+    @Test
+    fun `a cached wallpaper scheme is used for the first frame`() {
+        val cache = ThemeCache(Files.createTempDirectory("auxio-theme-wall"))
+        val wallpaper = Files.createTempFile("auxio-wall", ".png")
+        val settings = ThemeSettings(mode = ThemeMode.MATUGEN, wallpaper = wallpaper.toString())
+
+        cache.store(
+            Themes.cacheKey(settings.type, wallpaper),
+            mapOf("primary" to "#123456", "surface" to "#101010"),
+        )
+
+        val first = Themes.startingScheme(settings, Desktop.Appearance(null), null, cache)
+        assertEquals(Themes.colorOf("#123456"), first.primary)
+
+        // Another palette is a different entry, so it falls back to the accent instead.
+        val vibrant =
+            Themes.startingScheme(
+                settings.copy(type = SchemeType.VIBRANT),
+                Desktop.Appearance(accent = Color(0xFF3F6AAB)),
+                null,
+                cache,
+            )
+        assertNotEquals(Themes.colorOf("#123456"), vibrant.primary)
+    }
+
+    @Test
     fun `mitugen mode falls back to the desktop accent without matugen or a wallpaper`() {
         val appearance = Desktop.Appearance(accent = Color(0xFF3F6AAB))
         val scheme =

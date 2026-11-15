@@ -22,6 +22,7 @@ import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
+import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.math.roundToInt
 
@@ -65,6 +66,39 @@ object Themes {
         settings: ThemeSettings,
         appearance: Desktop.Appearance,
         wallpaper: Path?,
+        cache: ThemeCache = ThemeCache(),
+    ): ColorScheme {
+        val accent = appearance.accent ?: Desktop.DEFAULT_ACCENT
+        val image = wallpaperOf(settings, wallpaper)
+
+        return when (settings.mode) {
+            ThemeMode.DESKTOP -> fromSeed(accent, settings)
+            ThemeMode.CUSTOM -> fromSeed(settings.seed, settings)
+            ThemeMode.MATUGEN -> {
+                val computed = image?.let { Matugen.fromImage(it, settings.type.flag) }
+                if (image != null && computed != null) {
+                    cache.store(cacheKey(settings.type, image), computed)
+                }
+                computed?.let(::schemeOf)
+                    ?: image?.let { cache.roles(cacheKey(settings.type, it)) }?.let(::schemeOf)
+                    ?: fromSeed(accent, settings)
+            }
+        }
+    }
+
+    /**
+     * The scheme the very first frame is drawn in, so a launch never shows the wrong colours.
+     *
+     * Desktop and custom seeds are cheap enough to build here (a single `matugen color hex` at
+     * worst). A wallpaper is not: matugen has to decode the image, so the last result is read from
+     * [cache] instead, and the real run happens once the window is up. Without a cached result the
+     * accent scheme stands in, which is still the user's colour rather than the stock purple.
+     */
+    fun startingScheme(
+        settings: ThemeSettings,
+        appearance: Desktop.Appearance,
+        wallpaper: Path?,
+        cache: ThemeCache = ThemeCache(),
     ): ColorScheme {
         val accent = appearance.accent ?: Desktop.DEFAULT_ACCENT
 
@@ -72,12 +106,23 @@ object Themes {
             ThemeMode.DESKTOP -> fromSeed(accent, settings)
             ThemeMode.CUSTOM -> fromSeed(settings.seed, settings)
             ThemeMode.MATUGEN -> {
-                val image =
-                    settings.wallpaper.takeIf { it.isNotBlank() }?.let(Path::of) ?: wallpaper
-                val roles = image?.let { Matugen.fromImage(it, settings.type.flag) }
-                roles?.let(::schemeOf) ?: fromSeed(accent, settings)
+                val image = wallpaperOf(settings, wallpaper)
+                val cached = image?.let { cache.roles(cacheKey(settings.type, it)) }
+                cached?.let(::schemeOf) ?: fromSeed(accent, settings)
             }
         }
+    }
+
+    private fun wallpaperOf(settings: ThemeSettings, wallpaper: Path?): Path? =
+        settings.wallpaper.takeIf { it.isNotBlank() }?.let(Path::of) ?: wallpaper
+
+    /**
+     * Identifies a wallpaper palette, so an edited wallpaper or another palette misses the cache.
+     */
+    internal fun cacheKey(type: SchemeType, image: Path): String {
+        val size = runCatching { Files.size(image) }.getOrDefault(-1L)
+        val modified = runCatching { Files.getLastModifiedTime(image).toMillis() }.getOrDefault(-1L)
+        return "${type.flag}|$size|$modified|${image.toAbsolutePath().normalize()}"
     }
 
     /** The scheme matugen builds from [seed], or the built-in approximation when it is absent. */
