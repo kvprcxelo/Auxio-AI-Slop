@@ -1293,7 +1293,7 @@ private fun AlbumDetail(
             onBack = onBack,
         )
 
-        Spacer(modifier = Modifier.size(4.dp))
+        Spacer(modifier = Modifier.size(16.dp))
         Row(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -1317,7 +1317,7 @@ private fun AlbumDetail(
                 Text("Shuffle")
             }
         }
-        Spacer(modifier = Modifier.size(12.dp))
+        Spacer(modifier = Modifier.size(16.dp))
 
         LazyColumn(modifier = Modifier.fillMaxSize()) {
             itemsIndexed(album.tracks) { index, track ->
@@ -1939,7 +1939,7 @@ private fun TrackCollectionDetail(
             onBack = onBack,
         )
 
-        Spacer(modifier = Modifier.size(4.dp))
+        Spacer(modifier = Modifier.size(16.dp))
         Row(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -1963,7 +1963,7 @@ private fun TrackCollectionDetail(
                 Text("Shuffle")
             }
         }
-        Spacer(modifier = Modifier.size(12.dp))
+        Spacer(modifier = Modifier.size(16.dp))
 
         LazyColumn(modifier = Modifier.fillMaxSize()) {
             itemsIndexed(tracks) { index, track ->
