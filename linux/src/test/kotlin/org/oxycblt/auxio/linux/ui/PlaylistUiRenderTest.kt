@@ -420,16 +420,19 @@ class PlaylistUiRenderTest {
 
     @OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
     @Test
-    fun `sorts a playlist page without changing its stored order`() {
+    fun `drags a sorted playlist page and saves that order`() {
         val songs = tracks()
         val directory = songs.first().path.parent
         val file = directory.resolve("Sorted.m3u")
         val zulu = songs[0].copy(title = "Zulu", year = 2020)
         val alpha = songs[1].copy(title = "Alpha", year = 2010)
-        val stored =
-            zulu.path.toAbsolutePath().toString() + "\n" + alpha.path.toAbsolutePath() + "\n"
+        val mike = songs[2].copy(title = "Mike", year = 2015)
+        fun entries(tracks: List<Track>) =
+            tracks.joinToString("\n", postfix = "\n") { it.path.toAbsolutePath().toString() }
+
+        val stored = entries(listOf(zulu, alpha, mike))
         Files.writeString(file, stored)
-        val playlist = Playlist("Sorted", listOf(zulu, alpha), file)
+        val playlist = Playlist("Sorted", listOf(zulu, alpha, mike), file)
         val player = FakePlayer()
         val output = Files.createTempDirectory("auxio-playlist-sort").resolve("sort.png")
         try {
@@ -480,33 +483,28 @@ class PlaylistUiRenderTest {
                     "sorting changed the playlist file",
                 )
 
-                // A drag in the sorted view must not reinterpret sorted indices as stored ones.
-                scene.sendPointerEvent(PointerEventType.Press, Offset(1060f, 315f))
-                repeat(6) { step ->
+                // Grab the whole first card (Alpha under Name A-Z) and drop it one slot down.
+                scene.sendPointerEvent(PointerEventType.Press, Offset(500f, 315f))
+                repeat(8) { step ->
                     scene.sendPointerEvent(
                         PointerEventType.Move,
-                        Offset(1060f, 315f + 12f * (step + 1)),
+                        Offset(500f, 315f + 10f * (step + 1)),
                         buttons = PointerButtons(isPrimaryPressed = true),
                     )
                     scene.render()
                 }
-                scene.sendPointerEvent(PointerEventType.Release, Offset(1060f, 387f))
-                settle()
-                shot("playlist-sorted-drag")
-                assertTrue(
-                    Files.readString(file) == stored,
-                    "dragging a sorted view changed the playlist file",
-                )
+                shot("playlist-sorted-dragging")
+                scene.sendPointerEvent(PointerEventType.Release, Offset(500f, 395f))
+                settle(20)
+                scene.sendPointerEvent(PointerEventType.Move, Offset(10f, 650f))
+                settle(2)
+                shot("playlist-sorted-dropped")
 
-                // Back to Playlist order restores the stored order and its drag handles.
-                click(1011f, 48f)
-                settle()
-                click(950f, 118f)
-                settle()
-                shot("playlist-manual")
+                val expected = entries(listOf(mike, alpha, zulu))
                 assertTrue(
-                    Files.readString(file) == stored,
-                    "returning to playlist order changed the playlist file",
+                    Files.readString(file) == expected,
+                    "the order dropped while sorted was not written to the playlist " +
+                        "(${Files.readAllLines(file)})",
                 )
             } finally {
                 scene.close()
@@ -559,21 +557,28 @@ class PlaylistUiRenderTest {
                     scene.render()
                 }
 
-                // Drag the first row's handle down past the second row.
-                scene.sendPointerEvent(PointerEventType.Press, Offset(1060f, 315f))
+                // Clicking a card still plays it, even though the whole row is now draggable.
+                click(500f, 315f)
+                repeat(6) { scene.render() }
+                assertTrue(!player.isPaused(), "clicking a playlist card did not play it")
+
+                // Grab the first card anywhere and drag it past the second row.
+                scene.sendPointerEvent(PointerEventType.Press, Offset(500f, 315f))
                 repeat(8) { step ->
                     scene.sendPointerEvent(
                         PointerEventType.Move,
-                        Offset(1060f, 315f + 10f * (step + 1)),
+                        Offset(500f, 315f + 10f * (step + 1)),
                         buttons = PointerButtons(isPrimaryPressed = true),
                     )
                     scene.render()
                 }
-                scene.sendPointerEvent(PointerEventType.Release, Offset(1060f, 395f))
+                scene.sendPointerEvent(PointerEventType.Release, Offset(500f, 395f))
                 repeat(20) {
                     Thread.sleep(50)
                     scene.render()
                 }
+                scene.sendPointerEvent(PointerEventType.Move, Offset(10f, 650f))
+                repeat(2) { scene.render() }
 
                 val image = scene.render()
                 val encoded = requireNotNull(image.encodeToData(EncodedImageFormat.PNG))

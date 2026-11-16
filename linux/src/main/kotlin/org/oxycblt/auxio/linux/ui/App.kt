@@ -36,6 +36,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -80,6 +81,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
@@ -97,7 +99,9 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.zIndex
 import java.awt.FileDialog
 import java.awt.Frame
 import java.awt.GraphicsEnvironment
@@ -201,7 +205,7 @@ fun AuxioApp(
     var pendingDeleteUndo by remember { mutableStateOf<DeletedPlaylist?>(null) }
     var deletingPlaylist by remember { mutableStateOf<Playlist?>(null) }
     var sortMode by remember { mutableStateOf(SortMode.NAME_ASC) }
-    // Playlist sorting is a view-only override; null means the stored file order.
+    // Playlist sorting only changes the page until a drag; null means the file's order.
     var playlistSort by remember { mutableStateOf<SortMode?>(null) }
     var sortMenu by remember { mutableStateOf(false) }
     var transportHeightPx by remember { mutableStateOf(0) }
@@ -433,15 +437,22 @@ fun AuxioApp(
         }
     }
 
-    /** Reorders the open playlist and persists the new entry order to its file. */
-    fun moveTrack(playlist: Playlist, from: Int, to: Int) {
-        if (from == to || from !in playlist.tracks.indices) return
-        val target = to.coerceIn(0, playlist.tracks.lastIndex)
+    /**
+     * Reorders the open playlist to the visible order and persists that order to its file.
+     *
+     * [ordered] is what the page shows, which may be sorted. Dropping while sorted therefore writes
+     * the dragged order to the `.m3u` and returns the page to Playlist order, so the file and the
+     * list agree afterwards.
+     */
+    fun moveTrack(playlist: Playlist, ordered: List<Track>, from: Int, to: Int) {
+        if (from == to || from !in ordered.indices) return
+        val target = to.coerceIn(0, ordered.lastIndex)
         if (from == target) return
 
-        val tracks = playlist.tracks.toMutableList()
+        val tracks = ordered.toMutableList()
         tracks.add(target, tracks.removeAt(from))
         val updated = playlist.copy(tracks = tracks)
+        playlistSort = null
         if (openPlaylist?.path == playlist.path) openPlaylist = updated
         playlists = playlists.map { if (it.path == playlist.path) updated else it }
 
@@ -797,9 +808,8 @@ fun AuxioApp(
                                     )
                                 }
                                 playlist != null -> {
-                                    // Sorting never touches the stored order. Drag handles are
-                                    // only offered while showing that real order, so their
-                                    // indices always match the .m3u.
+                                    // Sorting is a temporary view, but a drag adopts the visible
+                                    // order as the playlist's real order.
                                     val tracks =
                                         remember(
                                             playlist.tracks,
@@ -823,12 +833,9 @@ fun AuxioApp(
                                             selectedSongs = emptySet()
                                         },
                                         onRemove = { track -> removeTrack(playlist, track) },
-                                        onMove =
-                                            if (playlistSort == null) {
-                                                { from, to -> moveTrack(playlist, from, to) }
-                                            } else {
-                                                null
-                                            },
+                                        onMove = { from, to ->
+                                            moveTrack(playlist, tracks, from, to)
+                                        },
                                         onDelete = { deletingPlaylist = playlist },
                                         current = current,
                                         onBack = {
@@ -2518,16 +2525,54 @@ private fun TrackRow(
 ) {
     var dragOffset by remember { mutableStateOf(0f) }
     var rowHeight by remember { mutableStateOf(1) }
+    var dragging by remember { mutableStateOf(false) }
+    val cardShape = RoundedCornerShape(12.dp)
 
     Row(
         modifier =
             Modifier.fillMaxWidth()
                 .onSizeChanged { rowHeight = it.height }
+                .zIndex(if (dragging) 1f else 0f)
+                .offset { IntOffset(0, dragOffset.roundToInt()) }
+                // The whole row lifts out of the list while it is being dragged.
+                .then(if (dragging) Modifier.shadow(12.dp, cardShape).clip(cardShape) else Modifier)
                 .background(
-                    if (playing) MaterialTheme.colorScheme.secondaryContainer
-                    else MaterialTheme.colorScheme.surface
+                    when {
+                        dragging -> MaterialTheme.colorScheme.surfaceContainerHigh
+                        playing -> MaterialTheme.colorScheme.secondaryContainer
+                        else -> MaterialTheme.colorScheme.surface
+                    }
                 )
                 .clickable(onClick = onClick)
+                .then(
+                    if (onMove != null) {
+                        Modifier.pointerInput(track.id, onMove) {
+                            detectVerticalDragGestures(
+                                onDragStart = {
+                                    dragging = true
+                                    dragOffset = 0f
+                                },
+                                onVerticalDrag = { change, amount ->
+                                    change.consume()
+                                    dragOffset += amount
+                                },
+                                onDragEnd = {
+                                    val steps =
+                                        (dragOffset / rowHeight.coerceAtLeast(1)).roundToInt()
+                                    dragging = false
+                                    dragOffset = 0f
+                                    if (steps != 0) onMove(steps)
+                                },
+                                onDragCancel = {
+                                    dragging = false
+                                    dragOffset = 0f
+                                },
+                            )
+                        }
+                    } else {
+                        Modifier
+                    }
+                )
                 .padding(horizontal = 16.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -2546,25 +2591,7 @@ private fun TrackRow(
             }
         }
         if (onMove != null) {
-            Box(
-                modifier =
-                    Modifier.size(48.dp).pointerInput(track.id, onMove) {
-                        detectVerticalDragGestures(
-                            onDragStart = { dragOffset = 0f },
-                            onVerticalDrag = { change, amount ->
-                                change.consume()
-                                dragOffset += amount
-                            },
-                            onDragEnd = {
-                                val steps = (dragOffset / rowHeight.coerceAtLeast(1)).roundToInt()
-                                dragOffset = 0f
-                                if (steps != 0) onMove(steps)
-                            },
-                            onDragCancel = { dragOffset = 0f },
-                        )
-                    },
-                contentAlignment = Alignment.Center,
-            ) {
+            Box(modifier = Modifier.size(48.dp), contentAlignment = Alignment.Center) {
                 Icon(
                     imageVector = AuxioIcons.DragHandle,
                     contentDescription = "Reorder song",
