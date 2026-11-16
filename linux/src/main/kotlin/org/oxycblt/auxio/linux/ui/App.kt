@@ -2004,10 +2004,7 @@ private fun TransportBar(
 
     Surface(
         modifier = Modifier.fillMaxWidth(),
-        // The neutral variant: surfaces themselves are near-grey and the container roles are not
-        // filled in by the generated schemes, so they would fall back to Material's default tint.
-        color = MaterialTheme.colorScheme.surfaceVariant,
-        contentColor = MaterialTheme.colorScheme.onSurface,
+        color = MaterialTheme.colorScheme.surfaceContainer,
         shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
     ) {
         Column(

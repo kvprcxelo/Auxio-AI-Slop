@@ -45,7 +45,7 @@ compose.desktop {
         nativeDistributions {
             targetFormats(TargetFormat.Deb, TargetFormat.Rpm)
             packageName = "auxio"
-            packageVersion = "0.11.6"
+            packageVersion = "0.11.7"
             description = "A simple, rational music player"
             vendor = "Auxio-AI-Slop"
         }
