@@ -101,6 +101,21 @@ object Playlists {
     }
 
     /**
+     * True when [source] is already part of the library: either a loaded playlist's file, or a file
+     * inside the managed folder. Importing it again would only create a duplicate copy.
+     */
+    fun isAlreadyLoaded(
+        source: Path,
+        playlists: List<Playlist>,
+        directory: Path = Storage.playlistDir,
+    ): Boolean {
+        val target = source.toAbsolutePath().normalize()
+        val managed = directory.toAbsolutePath().normalize()
+        return target.startsWith(managed) ||
+            playlists.any { it.path.toAbsolutePath().normalize() == target }
+    }
+
+    /**
      * Copies a playlist file into [directory] and returns the copy.
      *
      * Entries are made absolute on the way, since relative ones would point at the source folder

@@ -420,6 +420,106 @@ class PlaylistUiRenderTest {
 
     @OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
     @Test
+    fun `sorts a playlist page without changing its stored order`() {
+        val songs = tracks()
+        val directory = songs.first().path.parent
+        val file = directory.resolve("Sorted.m3u")
+        val zulu = songs[0].copy(title = "Zulu", year = 2020)
+        val alpha = songs[1].copy(title = "Alpha", year = 2010)
+        val stored =
+            zulu.path.toAbsolutePath().toString() + "\n" + alpha.path.toAbsolutePath() + "\n"
+        Files.writeString(file, stored)
+        val playlist = Playlist("Sorted", listOf(zulu, alpha), file)
+        val player = FakePlayer()
+        val output = Files.createTempDirectory("auxio-playlist-sort").resolve("sort.png")
+        try {
+            val scene =
+                ImageComposeScene(width = 1100, height = 720) {
+                    AuxioApp(
+                        player = player,
+                        library = Library.build(songs, playlists = listOf(playlist)),
+                        roots = listOf(songs.first().path.parent),
+                        initialSeparators = ";",
+                    )
+                }
+            try {
+                fun click(x: Float, y: Float) {
+                    scene.sendPointerEvent(PointerEventType.Press, Offset(x, y))
+                    scene.sendPointerEvent(PointerEventType.Release, Offset(x, y))
+                    scene.render()
+                }
+
+                fun settle(frames: Int = 6) {
+                    repeat(frames) {
+                        Thread.sleep(50)
+                        scene.render()
+                    }
+                }
+
+                fun shot(name: String) {
+                    scene.render()
+                    val image = scene.render()
+                    val encoded = requireNotNull(image.encodeToData(EncodedImageFormat.PNG))
+                    Files.write(output.resolveSibling("$name.png"), encoded.bytes)
+                }
+
+                scene.render()
+                click(990f, 122f)
+                click(300f, 170f)
+                settle()
+
+                // Sort only the page: manual opens a menu that starts with Playlist order.
+                click(1011f, 48f)
+                settle()
+                shot("playlist-sort-menu")
+                click(950f, 160f)
+                settle()
+                shot("playlist-sorted")
+                assertTrue(
+                    Files.readString(file) == stored,
+                    "sorting changed the playlist file",
+                )
+
+                // A drag in the sorted view must not reinterpret sorted indices as stored ones.
+                scene.sendPointerEvent(PointerEventType.Press, Offset(1060f, 315f))
+                repeat(6) { step ->
+                    scene.sendPointerEvent(
+                        PointerEventType.Move,
+                        Offset(1060f, 315f + 12f * (step + 1)),
+                        buttons = PointerButtons(isPrimaryPressed = true),
+                    )
+                    scene.render()
+                }
+                scene.sendPointerEvent(PointerEventType.Release, Offset(1060f, 387f))
+                settle()
+                shot("playlist-sorted-drag")
+                assertTrue(
+                    Files.readString(file) == stored,
+                    "dragging a sorted view changed the playlist file",
+                )
+
+                // Back to Playlist order restores the stored order and its drag handles.
+                click(1011f, 48f)
+                settle()
+                click(950f, 118f)
+                settle()
+                shot("playlist-manual")
+                assertTrue(
+                    Files.readString(file) == stored,
+                    "returning to playlist order changed the playlist file",
+                )
+            } finally {
+                scene.close()
+            }
+        } finally {
+            player.close()
+        }
+
+        println("PLAYLIST_SORT $output")
+    }
+
+    @OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
+    @Test
     fun `drags a playlist song into a new order and saves it`() {
         val songs = tracks()
         val directory = songs.first().path.parent

@@ -30,8 +30,10 @@ wallpaper through matugen, or a seed colour you pick — see [Theming](#theming)
 numbers are not read yet, and playlists can be created, imported and deleted from the playlists
 tab and have songs added, removed or dragged into a new order, with undo for removals and
 deletions. A sort control in the top bar orders songs and albums by name or release date, and the
-other lists by name; the song picker has its own search, and short notices appear as toasts above
-the player bar. There is no MPRIS, search ranking or ReplayGain.
+other lists by name. A playlist page can also be viewed by name or release date: that order is
+temporary and never touches the file, and Playlist order restores the stored order and its drag
+handles. The song picker has its own search, and short notices appear as toasts above the player
+bar. There is no MPRIS, search ranking or ReplayGain.
 
 ## Requirements
 
@@ -71,11 +73,12 @@ cache stores the tags read by the last scan, keyed by each file's path, size and
 cache and re-reads every file. Either kind of scan rewrites it for the next reload. Playlists in
 `~/auxio/playlists` are read on every scan of the library, alongside any `.m3u`/`.m3u8` files next
 to your music. Playlists created or imported in the playlists tab are written here; an import
-copies the file and makes its entries absolute, so relative paths still resolve after the move.
+copies the file and makes its entries absolute, so relative paths still resolve after the move. A
+file that is already loaded, or already lives in the managed folder, is not imported again.
 **Add songs** on a playlist page appends the chosen songs' paths to that file and skips any it
 already lists, so playlists stay editable in other players. Once a playlist has songs the button
-moves to the corner; each song has an X to remove it and a drag handle to reorder it, and the new
-order is written back to the `.m3u`. Removals and deletions can be undone from the toast, and the
+moves to the corner; each song has an X to remove it and, in Playlist order, a drag handle to
+reorder it, and the new order is written back to the `.m3u`. Removals and deletions can be undone from the toast, and the
 trash button in the page header deletes the playlist's file. Import opens the desktop's file
 picker (zenity or kdialog), falling back to AWT when neither is installed.
 

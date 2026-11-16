@@ -172,6 +172,37 @@ class PlaylistsTest {
     }
 
     @Test
+    fun `detects playlists that are already loaded or managed`() {
+        val directory = Files.createTempDirectory("auxio-m3u-already")
+        val music = Files.createTempDirectory("auxio-m3u-already-music")
+        val song = Files.writeString(music.resolve("a.mp3"), "")
+        val track = Track(song, "A")
+        val managed = Playlists.create("Mix", directory)!!
+        val loaded = Playlists.load(listOf(music), listOf(track), directory)
+
+        assertTrue(
+            Playlists.isAlreadyLoaded(managed, loaded, directory),
+            "a loaded managed playlist was not detected",
+        )
+        assertTrue(
+            Playlists.isAlreadyLoaded(directory.resolve("Fresh.m3u"), loaded, directory),
+            "an unloaded file inside the managed folder would be imported twice",
+        )
+        assertTrue(
+            !Playlists.isAlreadyLoaded(music.resolve("Outside.m3u"), loaded, directory),
+            "an unrelated file was treated as loaded",
+        )
+
+        val alongside = music.resolve("Mix.m3u")
+        Files.writeString(alongside, "#EXTM3U\n${song.toAbsolutePath()}\n")
+        val withAlongside = Playlists.load(listOf(music), listOf(track), directory)
+        assertTrue(
+            Playlists.isAlreadyLoaded(alongside, withAlongside, directory),
+            "a loaded playlist next to the music was not detected",
+        )
+    }
+
+    @Test
     fun `imports a playlist with absolute entries and keeps both copies`() {
         val source = Files.createTempDirectory("auxio-m3u-import")
         val song = Files.writeString(source.resolve("a.mp3"), "")

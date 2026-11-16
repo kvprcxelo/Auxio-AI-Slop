@@ -201,6 +201,8 @@ fun AuxioApp(
     var pendingDeleteUndo by remember { mutableStateOf<DeletedPlaylist?>(null) }
     var deletingPlaylist by remember { mutableStateOf<Playlist?>(null) }
     var sortMode by remember { mutableStateOf(SortMode.NAME_ASC) }
+    // Playlist sorting is a view-only override; null means the stored file order.
+    var playlistSort by remember { mutableStateOf<SortMode?>(null) }
     var sortMenu by remember { mutableStateOf(false) }
     var transportHeightPx by remember { mutableStateOf(0) }
 
@@ -315,6 +317,11 @@ fun AuxioApp(
     fun importPlaylist() {
         playlistMenu = false
         val source = choosePlaylistFile() ?: return
+        if (Playlists.isAlreadyLoaded(source, playlists)) {
+            reloadPlaylists()
+            notify("${source.fileName} is already in your library")
+            return
+        }
         val imported = Playlists.importFrom(source)
         if (imported == null) {
             notify("Could not import ${source.fileName}", error = true)
@@ -401,7 +408,10 @@ fun AuxioApp(
             val found = withContext(Dispatchers.IO) { Playlists.load(roots, songs) }
             playlists = found
             if (deleted != null) {
-                if (openPlaylist?.path == playlist.path) openPlaylist = null
+                if (openPlaylist?.path == playlist.path) {
+                    openPlaylist = null
+                    playlistSort = null
+                }
                 notify("Deleted ${playlist.name}", durationMillis = 10_000)
                 pendingDeleteUndo = deleted
             } else {
@@ -566,8 +576,8 @@ fun AuxioApp(
 
     val datesAvailable =
         !showSettings &&
-            openPlaylist == null &&
             when {
+                openPlaylist != null -> true
                 openAlbum != null || openArtist != null || openGenre != null -> true
                 else -> section == Section.Songs || section == Section.Albums
             }
@@ -624,7 +634,7 @@ fun AuxioApp(
                                 style = MaterialTheme.typography.labelMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
-                            if (!showSettings && openPlaylist == null) {
+                            if (!showSettings) {
                                 IconButton(
                                     onClick = {
                                         playlistMenu = false
@@ -786,24 +796,50 @@ fun AuxioApp(
                                         modifier = contentModifier,
                                     )
                                 }
-                                playlist != null ->
+                                playlist != null -> {
+                                    // Sorting never touches the stored order. Drag handles are
+                                    // only offered while showing that real order, so their
+                                    // indices always match the .m3u.
+                                    val tracks =
+                                        remember(
+                                            playlist.tracks,
+                                            playlistSort,
+                                            ignorePunctuation,
+                                        ) {
+                                            playlistSort?.let {
+                                                Sorting.tracks(
+                                                    playlist.tracks,
+                                                    it,
+                                                    ignorePunctuation,
+                                                )
+                                            } ?: playlist.tracks
+                                        }
                                     TrackCollectionDetail(
                                         title = playlist.name,
-                                        subtitle = count(playlist.tracks.size, "song"),
-                                        tracks = playlist.tracks,
+                                        subtitle = count(tracks.size, "song"),
+                                        tracks = tracks,
                                         onAddSongs = {
                                             addingSongsTo = playlist
                                             selectedSongs = emptySet()
                                         },
                                         onRemove = { track -> removeTrack(playlist, track) },
-                                        onMove = { from, to -> moveTrack(playlist, from, to) },
+                                        onMove =
+                                            if (playlistSort == null) {
+                                                { from, to -> moveTrack(playlist, from, to) }
+                                            } else {
+                                                null
+                                            },
                                         onDelete = { deletingPlaylist = playlist },
                                         current = current,
-                                        onBack = { openPlaylist = null },
-                                        onPlay = { index -> play(playlist.tracks, index) },
-                                        onShuffle = { shufflePlay(playlist.tracks) },
+                                        onBack = {
+                                            openPlaylist = null
+                                            playlistSort = null
+                                        },
+                                        onPlay = { index -> play(tracks, index) },
+                                        onShuffle = { shufflePlay(tracks) },
                                         modifier = contentModifier,
                                     )
+                                }
                                 else -> {
                                     Column(modifier = contentModifier) {
                                         PrimaryTabRow(selectedTabIndex = section.ordinal) {
@@ -881,6 +917,7 @@ fun AuxioApp(
                                                             playlists = orderedPlaylists,
                                                             onOpen = {
                                                                 openPlaylist = it
+                                                                playlistSort = null
                                                                 sortMenu = false
                                                             },
                                                             modifier = Modifier.fillMaxSize(),
@@ -1026,11 +1063,17 @@ fun AuxioApp(
 
             if (sortMenu) {
                 MenuScrim(onDismiss = { sortMenu = false })
+                val onPlaylistPage = openPlaylist != null
                 SortMenu(
-                    sortMode = sortMode,
+                    selected = if (onPlaylistPage) playlistSort else sortMode,
                     datesAvailable = datesAvailable,
-                    onSelect = {
-                        sortMode = it
+                    includeManual = onPlaylistPage,
+                    onSelect = { mode ->
+                        if (onPlaylistPage) {
+                            playlistSort = mode
+                        } else if (mode != null) {
+                            sortMode = mode
+                        }
                         sortMenu = false
                     },
                     modifier = Modifier.align(Alignment.TopEnd).padding(top = 88.dp, end = 16.dp),
@@ -1170,9 +1213,10 @@ private fun EmptyPlaylists(
 /** The sort choices, shown under the top bar's sort button. */
 @Composable
 private fun SortMenu(
-    sortMode: SortMode,
+    selected: SortMode?,
     datesAvailable: Boolean,
-    onSelect: (SortMode) -> Unit,
+    includeManual: Boolean,
+    onSelect: (SortMode?) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Surface(
@@ -1183,22 +1227,43 @@ private fun SortMenu(
         shadowElevation = 10.dp,
     ) {
         Column(modifier = Modifier.padding(vertical = 8.dp)) {
+            if (includeManual) {
+                SortOption(
+                    label = "Playlist order",
+                    selected = selected == null,
+                    onClick = { onSelect(null) },
+                )
+            }
             SortMode.entries.forEach { mode ->
-                val enabled = !mode.isDate || datesAvailable
-                Text(
-                    text = (if (sortMode == mode) "✓ " else "") + mode.label,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color =
-                        if (enabled) MaterialTheme.colorScheme.onSurface
-                        else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
-                    modifier =
-                        Modifier.fillMaxWidth()
-                            .clickable(enabled = enabled) { onSelect(mode) }
-                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                SortOption(
+                    label = mode.label,
+                    selected = selected == mode,
+                    enabled = !mode.isDate || datesAvailable,
+                    onClick = { onSelect(mode) },
                 )
             }
         }
     }
+}
+
+@Composable
+private fun SortOption(
+    label: String,
+    selected: Boolean,
+    enabled: Boolean = true,
+    onClick: () -> Unit,
+) {
+    Text(
+        text = (if (selected) "✓ " else "") + label,
+        style = MaterialTheme.typography.bodyMedium,
+        color =
+            if (enabled) MaterialTheme.colorScheme.onSurface
+            else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
+        modifier =
+            Modifier.fillMaxWidth()
+                .clickable(enabled = enabled, onClick = onClick)
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+    )
 }
 
 /** A small floating notice above the player bar, with Undo when the action can be reversed. */
@@ -1581,6 +1646,9 @@ private fun SettingsPage(
                         selected = theme.brightness == brightness,
                         onClick = { onTheme(theme.copy(brightness = brightness)) },
                         label = { Text(brightness.label) },
+                        // Compose Desktop draws a dark elevation highlight on hover; the
+                        // chip needs no elevation at all.
+                        elevation = null,
                     )
                 }
             }
@@ -1706,6 +1774,7 @@ private fun SettingsPage(
                                     selected = theme.type == type,
                                     onClick = { onTheme(theme.copy(type = type)) },
                                     label = { Text(type.label) },
+                                    elevation = null,
                                 )
                             }
                         }
