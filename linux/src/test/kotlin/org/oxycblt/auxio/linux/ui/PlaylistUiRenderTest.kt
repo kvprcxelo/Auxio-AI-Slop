@@ -24,6 +24,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEvent
 import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.pointer.PointerButtons
 import androidx.compose.ui.input.pointer.PointerEventType
 import java.nio.file.Files
 import java.nio.file.Path
@@ -54,6 +55,7 @@ class PlaylistUiRenderTest {
         }
     }
 
+    @OptIn(androidx.compose.ui.InternalComposeUiApi::class)
     private fun render(
         playlists: List<Playlist>,
         name: String,
@@ -61,6 +63,7 @@ class PlaylistUiRenderTest {
         fabY: Float?,
         emptyMenu: Boolean = false,
         dismissAt: Pair<Float, Float>? = null,
+        escape: Boolean = false,
     ): Path {
         val songs = tracks()
         val player = FakePlayer()
@@ -105,6 +108,15 @@ class PlaylistUiRenderTest {
                     val dismissedPng =
                         requireNotNull(dismissed.encodeToData(EncodedImageFormat.PNG))
                     Files.write(output.resolveSibling("$name-dismissed.png"), dismissedPng.bytes)
+                }
+
+                if (escape) {
+                    scene.sendKeyEvent(KeyEvent(key = Key.Escape, type = KeyEventType.KeyDown))
+                    scene.sendKeyEvent(KeyEvent(key = Key.Escape, type = KeyEventType.KeyUp))
+                    repeat(4) { scene.render() }
+                    val escaped = scene.render()
+                    val escapedPng = requireNotNull(escaped.encodeToData(EncodedImageFormat.PNG))
+                    Files.write(output.resolveSibling("$name-escaped.png"), escapedPng.bytes)
                 }
             } finally {
                 scene.close()
@@ -205,7 +217,7 @@ class PlaylistUiRenderTest {
                     Thread.sleep(50)
                     scene.render()
                 }
-                click(400f, 270f)
+                click(400f, 306f)
                 // The checkbox ticks over a short animation, so let it finish.
                 repeat(6) {
                     Thread.sleep(50)
@@ -214,7 +226,7 @@ class PlaylistUiRenderTest {
                 shot("playlist-add-selected")
 
                 // Add the song; this writes the playlist and reloads it.
-                click(775f, 500f)
+                click(775f, 533f)
                 repeat(20) {
                     Thread.sleep(50)
                     scene.render()
@@ -228,7 +240,7 @@ class PlaylistUiRenderTest {
                 )
 
                 // Remove it with the row's minus button, then put it back from the notice.
-                click(1060f, 315f)
+                click(1012f, 315f)
                 repeat(20) {
                     Thread.sleep(50)
                     scene.render()
@@ -240,7 +252,7 @@ class PlaylistUiRenderTest {
                     "the song was not removed from the playlist",
                 )
 
-                click(1055f, 104f)
+                click(662f, 570f)
                 repeat(20) {
                     Thread.sleep(50)
                     scene.render()
@@ -259,103 +271,6 @@ class PlaylistUiRenderTest {
         }
 
         println("PLAYLIST_ADD $output")
-    }
-
-    @Test
-    fun `clicking the status message row closes the playlist menu`() {
-        val songs = tracks()
-        // Keep the playlists in a scanned root, so they survive the reload after removal.
-        val directory = songs.first().path.parent
-        val mixFile = directory.resolve("Mix.m3u")
-        val otherFile = directory.resolve("Other.m3u")
-        Files.writeString(mixFile, songs[0].path.toAbsolutePath().toString() + "\n")
-        Files.writeString(otherFile, songs[1].path.toAbsolutePath().toString() + "\n")
-        val playlists =
-            listOf(
-                Playlist("Mix", listOf(songs[0]), mixFile),
-                Playlist("Other", listOf(songs[1]), otherFile),
-            )
-        val player = FakePlayer()
-        val output = Files.createTempDirectory("auxio-playlist-message").resolve("menu-message.png")
-        try {
-            val scene =
-                ImageComposeScene(width = 1100, height = 720) {
-                    AuxioApp(
-                        player = player,
-                        library = Library.build(songs, playlists = playlists),
-                        roots = listOf(songs.first().path.parent),
-                        initialSeparators = ";",
-                    )
-                }
-            try {
-                fun click(x: Float, y: Float) {
-                    scene.sendPointerEvent(PointerEventType.Press, Offset(x, y))
-                    scene.sendPointerEvent(PointerEventType.Release, Offset(x, y))
-                    scene.render()
-                }
-
-                fun settle(frames: Int = 6) {
-                    repeat(frames) {
-                        Thread.sleep(50)
-                        scene.render()
-                    }
-                }
-
-                fun shot(name: String) {
-                    scene.render()
-                    val image = scene.render()
-                    val encoded = requireNotNull(image.encodeToData(EncodedImageFormat.PNG))
-                    Files.write(output.resolveSibling("$name.png"), encoded.bytes)
-                }
-
-                scene.render()
-                click(990f, 122f)
-                click(300f, 170f)
-                settle()
-
-                // Removing Mix's only song leaves a status row with Undo above the content.
-                click(1060f, 315f)
-                settle(20)
-                shot("menu-message-removed")
-
-                // Back to the list; the status row and its notice stay put.
-                click(51f, 190f)
-                settle()
-                shot("menu-message-back")
-
-                // Open the corner playlist menu over the list.
-                click(1052f, 566f)
-                settle()
-                shot("menu-message-open")
-                val open =
-                    javax.imageio.ImageIO.read(
-                        output.resolveSibling("menu-message-open.png").toFile()
-                    )
-                val openPixel = java.awt.Color(open.getRGB(970, 470))
-                assertTrue(openPixel.red > 50, "the playlist menu did not open")
-
-                // Clicking the status row dismisses it.
-                click(300f, 121f)
-                settle()
-                shot("menu-message-dismissed")
-                val dismissed =
-                    javax.imageio.ImageIO.read(
-                        output.resolveSibling("menu-message-dismissed.png").toFile()
-                    )
-                val pixel = java.awt.Color(dismissed.getRGB(970, 470))
-                assertTrue(
-                    pixel.red < 50 && pixel.green < 50,
-                    "the menu stayed open after a status row click " +
-                        "(${pixel.red}, ${pixel.green})",
-                )
-            } finally {
-                scene.close()
-            }
-        } finally {
-            player.close()
-        }
-
-        println("PLAYLIST_MESSAGE $output")
     }
 
     @Test
@@ -478,6 +393,150 @@ class PlaylistUiRenderTest {
             pixel.red < 50 && pixel.green < 50,
             "the menu stayed open after a player bar click (${pixel.red}, ${pixel.green})",
         )
+    }
+
+    @Test
+    fun `escape closes the playlist menu`() {
+        val songs = tracks()
+        val path =
+            render(
+                listOf(Playlist("Mix", songs, Path.of("Mix.m3u"))),
+                "menu-escape",
+                playlistTab = true,
+                fabY = 566f,
+                escape = true,
+            )
+        val opened = javax.imageio.ImageIO.read(path.toFile())
+        val openedPixel = java.awt.Color(opened.getRGB(970, 470))
+        assertTrue(openedPixel.red > 50, "the playlist menu did not open")
+        val escaped =
+            javax.imageio.ImageIO.read(path.resolveSibling("menu-escape-escaped.png").toFile())
+        val pixel = java.awt.Color(escaped.getRGB(970, 470))
+        assertTrue(
+            pixel.red < 50 && pixel.green < 50,
+            "the menu stayed open after Escape (${pixel.red}, ${pixel.green})",
+        )
+    }
+
+    @OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
+    @Test
+    fun `drags a playlist song into a new order and saves it`() {
+        val songs = tracks()
+        val directory = songs.first().path.parent
+        val file = directory.resolve("Mix.m3u")
+        Files.writeString(
+            file,
+            songs[0].path.toAbsolutePath().toString() +
+                "\n" +
+                songs[1].path.toAbsolutePath().toString() +
+                "\n",
+        )
+        val playlist = Playlist("Mix", songs.take(2), file)
+        val player = FakePlayer()
+        val output = Files.createTempDirectory("auxio-playlist-drag").resolve("drag.png")
+        try {
+            val scene =
+                ImageComposeScene(width = 1100, height = 720) {
+                    AuxioApp(
+                        player = player,
+                        library = Library.build(songs, playlists = listOf(playlist)),
+                        roots = listOf(songs.first().path.parent),
+                        initialSeparators = ";",
+                    )
+                }
+            try {
+                fun click(x: Float, y: Float) {
+                    scene.sendPointerEvent(PointerEventType.Press, Offset(x, y))
+                    scene.sendPointerEvent(PointerEventType.Release, Offset(x, y))
+                    scene.render()
+                }
+
+                scene.render()
+                click(990f, 122f)
+                click(300f, 170f)
+                repeat(6) {
+                    Thread.sleep(50)
+                    scene.render()
+                }
+
+                // Drag the first row's handle down past the second row.
+                scene.sendPointerEvent(PointerEventType.Press, Offset(1060f, 315f))
+                repeat(8) { step ->
+                    scene.sendPointerEvent(
+                        PointerEventType.Move,
+                        Offset(1060f, 315f + 10f * (step + 1)),
+                        buttons = PointerButtons(isPrimaryPressed = true),
+                    )
+                    scene.render()
+                }
+                scene.sendPointerEvent(PointerEventType.Release, Offset(1060f, 395f))
+                repeat(20) {
+                    Thread.sleep(50)
+                    scene.render()
+                }
+
+                val image = scene.render()
+                val encoded = requireNotNull(image.encodeToData(EncodedImageFormat.PNG))
+                Files.write(output, encoded.bytes)
+
+                val entries = Files.readAllLines(file).map { it.trim() }.filter { it.isNotEmpty() }
+                assertTrue(
+                    entries ==
+                        listOf(
+                            songs[1].path.toAbsolutePath().toString(),
+                            songs[0].path.toAbsolutePath().toString(),
+                        ),
+                    "the new order was not saved to the playlist ($entries)",
+                )
+            } finally {
+                scene.close()
+            }
+        } finally {
+            player.close()
+        }
+
+        println("PLAYLIST_DRAG $output")
+    }
+
+    @Test
+    fun `opens the sort menu`() {
+        val songs = tracks()
+        val player = FakePlayer()
+        val output = Files.createTempDirectory("auxio-sort").resolve("sort-menu.png")
+        try {
+            val scene =
+                ImageComposeScene(width = 1100, height = 720) {
+                    AuxioApp(
+                        player = player,
+                        library = Library.build(songs),
+                        roots = listOf(songs.first().path.parent),
+                        initialSeparators = ";",
+                    )
+                }
+            try {
+                scene.render()
+                scene.sendPointerEvent(PointerEventType.Press, Offset(1011f, 48f))
+                scene.sendPointerEvent(PointerEventType.Release, Offset(1011f, 48f))
+                repeat(4) { scene.render() }
+                val image = scene.render()
+                val encoded = requireNotNull(image.encodeToData(EncodedImageFormat.PNG))
+                Files.write(output, encoded.bytes)
+
+                // Choose Name (Z–A), then close the menu; the songs should reverse.
+                scene.sendPointerEvent(PointerEventType.Press, Offset(950f, 162f))
+                scene.sendPointerEvent(PointerEventType.Release, Offset(950f, 162f))
+                repeat(4) { scene.render() }
+                val selected = scene.render()
+                val selectedPng = requireNotNull(selected.encodeToData(EncodedImageFormat.PNG))
+                Files.write(output.resolveSibling("sort-applied.png"), selectedPng.bytes)
+            } finally {
+                scene.close()
+            }
+        } finally {
+            player.close()
+        }
+
+        println("SORT_MENU $output")
     }
 
     @Test

@@ -40,6 +40,9 @@ data class Playlist(val name: String, val tracks: List<Track>, val path: Path)
  */
 data class RemovedSong(val file: Path, val entries: List<Pair<Int, String>>)
 
+/** A deleted playlist's file and contents, so [Playlists.restore] can put it back. */
+data class DeletedPlaylist(val path: Path, val name: String, val contents: ByteArray)
+
 object Playlists {
     private val EXTENSIONS = setOf("m3u", "m3u8")
 
@@ -204,9 +207,58 @@ object Playlists {
             }
             .getOrDefault(false)
 
-    /** Deletes the playlist's file; true when it is gone. */
-    fun delete(playlist: Playlist): Boolean =
-        runCatching { Files.deleteIfExists(playlist.path) }.isSuccess
+    /** Deletes the playlist's file and returns what is needed to restore it. */
+    fun delete(playlist: Playlist): DeletedPlaylist? =
+        runCatching {
+                val contents = Files.readAllBytes(playlist.path)
+                if (!Files.deleteIfExists(playlist.path)) null
+                else DeletedPlaylist(playlist.path, playlist.name, contents)
+            }
+            .getOrNull()
+
+    /** Writes a deleted playlist's file back, so deleting can be undone. */
+    fun restore(deleted: DeletedPlaylist): Boolean =
+        runCatching {
+                deleted.path.parent?.let { Files.createDirectories(it) }
+                Files.write(deleted.path, deleted.contents)
+                true
+            }
+            .getOrDefault(false)
+
+    /**
+     * Rewrites the playlist's entry lines in [playlist]'s track order, keeping comments and
+     * relative entries intact. This is what makes a drag on the playlist page survive a restart.
+     */
+    fun reorder(playlist: Playlist): Boolean =
+        runCatching {
+                val file = playlist.path
+                val entries = mutableMapOf<Path, ArrayDeque<String>>()
+                val otherLines = mutableListOf<String>()
+                Files.readAllLines(file).forEach { line ->
+                    val path = entryOf(file, line.trim())
+                    if (path == null) {
+                        otherLines += line
+                    } else {
+                        entries.getOrPut(path) { ArrayDeque() }.addLast(line)
+                    }
+                }
+
+                val ordered = mutableListOf<String>()
+                playlist.tracks.forEach { track ->
+                    val queue = entries[track.path.toAbsolutePath().normalize()]
+                    if (queue != null && queue.isNotEmpty()) ordered += queue.removeFirst()
+                }
+                // Entries the playlist object never saw still belong in the file.
+                entries.values.forEach { ordered += it }
+
+                val lines = otherLines + ordered
+                Files.writeString(
+                    file,
+                    lines.joinToString("\n", postfix = if (lines.isEmpty()) "" else "\n"),
+                )
+                true
+            }
+            .getOrDefault(false)
 
     /** The file's entries as absolute paths, for deciding what a playlist already has. */
     private fun entries(file: Path): Set<Path> =

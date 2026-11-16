@@ -98,6 +98,23 @@ internal object AuxioIcons {
 
     val Remove: ImageVector by lazy { icon("Remove", "M19 13H5v-2h14v2z") }
 
+    val Close: ImageVector by lazy {
+        icon(
+            "Close",
+            "M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 " +
+                "17.59 19 19 17.59 13.41 12z",
+        )
+    }
+
+    val DragHandle: ImageVector by lazy {
+        icon(
+            "DragHandle",
+            "M20 6H4v2h16V6zm0 5H4v2h16v-2zm0 5H4v2h16v-2z",
+        )
+    }
+
+    val Sort: ImageVector by lazy { icon("Sort", "M3 18h6v-2H3v2zM3 6v2h18V6H3zm0 7h12v-2H3v2z") }
+
     val Delete: ImageVector by lazy {
         icon(
             "Delete",

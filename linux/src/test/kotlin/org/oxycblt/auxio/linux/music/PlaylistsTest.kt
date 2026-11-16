@@ -129,15 +129,46 @@ class PlaylistsTest {
     }
 
     @Test
-    fun `deletes a playlist file`() {
+    fun `deletes a playlist file and can restore it`() {
         val directory = Files.createTempDirectory("auxio-m3u-delete")
         val song = Files.writeString(directory.resolve("a.mp3"), "")
         val track = Track(song, "A")
         val file = Playlists.create("Mix", directory)!!
+        Playlists.addTracks(Playlist("Mix", emptyList(), file), listOf(track))
 
-        assertTrue(Playlists.delete(Playlist("Mix", listOf(track), file)))
+        val deleted = Playlists.delete(Playlist("Mix", listOf(track), file))
+        assertTrue(deleted != null, "the playlist was not deleted")
         assertTrue(!Files.exists(file), "the playlist file still exists")
         assertTrue(Playlists.load(listOf(directory), listOf(track), directory).isEmpty())
+
+        assertTrue(Playlists.restore(deleted!!), "the playlist could not be restored")
+        assertEquals(
+            listOf("A"),
+            Playlists.load(listOf(directory), listOf(track), directory).single().tracks.map {
+                it.title
+            },
+            "restoring puts the deleted file back",
+        )
+    }
+
+    @Test
+    fun `reorders entries in the m3u and keeps the header`() {
+        val directory = Files.createTempDirectory("auxio-m3u-reorder")
+        val songs =
+            listOf("a", "b", "c").map { name ->
+                Track(Files.writeString(directory.resolve("$name.mp3"), ""), name.uppercase())
+            }
+        val file = Playlists.create("Mix", directory)!!
+        Playlists.addTracks(Playlist("Mix", emptyList(), file), songs)
+
+        val reordered = listOf(songs[2], songs[0], songs[1])
+        assertTrue(Playlists.reorder(Playlist("Mix", reordered, file)), "reorder failed")
+
+        assertEquals(
+            listOf("C", "A", "B"),
+            Playlists.load(listOf(directory), songs, directory).single().tracks.map { it.title },
+        )
+        assertTrue(Files.readString(file).startsWith("#EXTM3U\n"))
     }
 
     @Test

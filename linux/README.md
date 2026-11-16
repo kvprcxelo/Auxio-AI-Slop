@@ -28,8 +28,10 @@ split multi-artist tags, and a switch that sorts
 when a file carries no tags. The window's colour scheme follows your desktop's accent, or your
 wallpaper through matugen, or a seed colour you pick — see [Theming](#theming). Album artist and disc
 numbers are not read yet, and playlists can be created, imported and deleted from the playlists
-tab and have songs added or removed, with an undo for removals, though songs cannot yet be
-reordered. There is no MPRIS, search ranking or ReplayGain.
+tab and have songs added, removed or dragged into a new order, with undo for removals and
+deletions. A sort control in the top bar orders songs and albums by name or release date, and the
+other lists by name; the song picker has its own search, and short notices appear as toasts above
+the player bar. There is no MPRIS, search ranking or ReplayGain.
 
 ## Requirements
 
@@ -72,8 +74,10 @@ to your music. Playlists created or imported in the playlists tab are written he
 copies the file and makes its entries absolute, so relative paths still resolve after the move.
 **Add songs** on a playlist page appends the chosen songs' paths to that file and skips any it
 already lists, so playlists stay editable in other players. Once a playlist has songs the button
-moves to the corner; removing a song can be undone from the notice, and the trash button in the
-page header deletes the playlist's file.
+moves to the corner; each song has an X to remove it and a drag handle to reorder it, and the new
+order is written back to the `.m3u`. Removals and deletions can be undone from the toast, and the
+trash button in the page header deletes the playlist's file. Import opens the desktop's file
+picker (zenity or kdialog), falling back to AWT when neither is installed.
 
 ## Theming
 

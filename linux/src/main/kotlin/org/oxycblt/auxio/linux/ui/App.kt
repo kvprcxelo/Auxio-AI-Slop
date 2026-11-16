@@ -22,6 +22,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -89,7 +90,10 @@ import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -98,6 +102,7 @@ import java.awt.FileDialog
 import java.awt.Frame
 import java.awt.GraphicsEnvironment
 import java.io.ByteArrayInputStream
+import java.nio.file.Files
 import java.nio.file.Path
 import javax.imageio.ImageIO
 import kotlin.math.roundToInt
@@ -112,6 +117,7 @@ import org.oxycblt.auxio.linux.music.Album
 import org.oxycblt.auxio.linux.music.Artist
 import org.oxycblt.auxio.linux.music.ArtworkStore
 import org.oxycblt.auxio.linux.music.Dates
+import org.oxycblt.auxio.linux.music.DeletedPlaylist
 import org.oxycblt.auxio.linux.music.Genre
 import org.oxycblt.auxio.linux.music.Library
 import org.oxycblt.auxio.linux.music.LibraryScanner
@@ -119,6 +125,8 @@ import org.oxycblt.auxio.linux.music.MusicLibrary
 import org.oxycblt.auxio.linux.music.Playlist
 import org.oxycblt.auxio.linux.music.Playlists
 import org.oxycblt.auxio.linux.music.RemovedSong
+import org.oxycblt.auxio.linux.music.SortMode
+import org.oxycblt.auxio.linux.music.Sorting
 import org.oxycblt.auxio.linux.music.Track
 import org.oxycblt.auxio.linux.playback.DebugLog
 import org.oxycblt.auxio.linux.playback.LoopMode
@@ -190,7 +198,11 @@ fun AuxioApp(
     var addingSongsTo by remember { mutableStateOf<Playlist?>(null) }
     var selectedSongs by remember { mutableStateOf<Set<String>>(emptySet()) }
     var pendingUndo by remember { mutableStateOf<Undo?>(null) }
+    var pendingDeleteUndo by remember { mutableStateOf<DeletedPlaylist?>(null) }
     var deletingPlaylist by remember { mutableStateOf<Playlist?>(null) }
+    var sortMode by remember { mutableStateOf(SortMode.NAME_ASC) }
+    var sortMenu by remember { mutableStateOf(false) }
+    var transportHeightPx by remember { mutableStateOf(0) }
 
     val desktopAppearance = remember { Desktop.appearance() }
     val desktopWallpaper = remember { Desktop.wallpaper() }
@@ -232,12 +244,14 @@ fun AuxioApp(
     ) {
         val next = Message(text, error)
         pendingUndo = null
+        pendingDeleteUndo = null
         message = next
         scope.launch {
             delay(durationMillis)
             if (message == next) {
                 message = null
                 pendingUndo = null
+                pendingDeleteUndo = null
             }
         }
     }
@@ -335,6 +349,7 @@ fun AuxioApp(
 
     /** Rewrites the playlist without [track], then refreshes both the list and the open page. */
     fun removeTrack(playlist: Playlist, track: Track) {
+        pendingDeleteUndo = null
         scope.launch {
             val removal = withContext(Dispatchers.IO) { Playlists.removeTrack(playlist, track) }
             val found = withContext(Dispatchers.IO) { Playlists.load(roots, songs) }
@@ -378,19 +393,56 @@ fun AuxioApp(
         }
     }
 
-    /** Deletes the playlist file and leaves its page, since there is nothing left to show. */
+    /** Deletes the playlist file and leaves its page, keeping enough to undo the deletion. */
     fun deletePlaylist(playlist: Playlist) {
         deletingPlaylist = null
         scope.launch {
             val deleted = withContext(Dispatchers.IO) { Playlists.delete(playlist) }
             val found = withContext(Dispatchers.IO) { Playlists.load(roots, songs) }
             playlists = found
-            if (deleted) {
+            if (deleted != null) {
                 if (openPlaylist?.path == playlist.path) openPlaylist = null
-                notify("Deleted ${playlist.name}")
+                notify("Deleted ${playlist.name}", durationMillis = 10_000)
+                pendingDeleteUndo = deleted
             } else {
                 notify("Could not delete ${playlist.name}", error = true)
             }
+        }
+    }
+
+    /** Puts a deleted playlist's file back. */
+    fun undoDelete() {
+        val deleted = pendingDeleteUndo ?: return
+        pendingDeleteUndo = null
+        scope.launch {
+            val restored = withContext(Dispatchers.IO) { Playlists.restore(deleted) }
+            val found = withContext(Dispatchers.IO) { Playlists.load(roots, songs) }
+            playlists = found
+            if (restored) notify("Restored ${deleted.name}")
+            else notify("Could not restore ${deleted.name}", error = true)
+        }
+    }
+
+    /** Reorders the open playlist and persists the new entry order to its file. */
+    fun moveTrack(playlist: Playlist, from: Int, to: Int) {
+        if (from == to || from !in playlist.tracks.indices) return
+        val target = to.coerceIn(0, playlist.tracks.lastIndex)
+        if (from == target) return
+
+        val tracks = playlist.tracks.toMutableList()
+        tracks.add(target, tracks.removeAt(from))
+        val updated = playlist.copy(tracks = tracks)
+        if (openPlaylist?.path == playlist.path) openPlaylist = updated
+        playlists = playlists.map { if (it.path == playlist.path) updated else it }
+
+        scope.launch {
+            val saved = withContext(Dispatchers.IO) { Playlists.reorder(updated) }
+            val found = withContext(Dispatchers.IO) { Playlists.load(roots, songs) }
+            playlists = found
+            if (openPlaylist?.path == updated.path) {
+                openPlaylist = found.firstOrNull { it.path == updated.path } ?: updated
+            }
+            if (!saved) notify("Could not save the new order", error = true)
         }
     }
 
@@ -491,8 +543,60 @@ fun AuxioApp(
             else currentLibrary.playlists.filter { it.name.contains(query, ignoreCase = true) }
         }
 
+    val orderedSongs =
+        remember(visibleSongs, sortMode, ignorePunctuation) {
+            Sorting.tracks(visibleSongs, sortMode, ignorePunctuation)
+        }
+    val orderedAlbums =
+        remember(visibleAlbums, sortMode, ignorePunctuation) {
+            Sorting.albums(visibleAlbums, sortMode, ignorePunctuation)
+        }
+    val orderedArtists =
+        remember(visibleArtists, sortMode, ignorePunctuation) {
+            Sorting.artists(visibleArtists, sortMode, ignorePunctuation)
+        }
+    val orderedGenres =
+        remember(visibleGenres, sortMode, ignorePunctuation) {
+            Sorting.genres(visibleGenres, sortMode, ignorePunctuation)
+        }
+    val orderedPlaylists =
+        remember(visiblePlaylists, sortMode, ignorePunctuation) {
+            Sorting.playlists(visiblePlaylists, sortMode, ignorePunctuation)
+        }
+
+    val datesAvailable =
+        !showSettings &&
+            openPlaylist == null &&
+            when {
+                openAlbum != null || openArtist != null || openGenre != null -> true
+                else -> section == Section.Songs || section == Section.Albums
+            }
+
+    val rootFocus = remember { FocusRequester() }
+    LaunchedEffect(Unit) { runCatching { rootFocus.requestFocus() } }
+
     MaterialTheme(colorScheme = scheme) {
-        Box(modifier = Modifier.fillMaxSize()) {
+        Box(
+            modifier =
+                Modifier.fillMaxSize().focusRequester(rootFocus).focusable().onPreviewKeyEvent {
+                    event ->
+                    if (event.type == KeyEventType.KeyDown && event.key == Key.Escape) {
+                        when {
+                            sortMenu -> {
+                                sortMenu = false
+                                true
+                            }
+                            playlistMenu -> {
+                                playlistMenu = false
+                                true
+                            }
+                            else -> false
+                        }
+                    } else {
+                        false
+                    }
+                }
+        ) {
             Surface(modifier = Modifier.fillMaxSize()) {
                 Column(modifier = Modifier.fillMaxSize()) {
                     Box(modifier = Modifier.fillMaxWidth()) {
@@ -520,6 +624,19 @@ fun AuxioApp(
                                 style = MaterialTheme.typography.labelMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
+                            if (!showSettings && openPlaylist == null) {
+                                IconButton(
+                                    onClick = {
+                                        playlistMenu = false
+                                        sortMenu = !sortMenu
+                                    }
+                                ) {
+                                    Icon(
+                                        imageVector = AuxioIcons.Sort,
+                                        contentDescription = "Sort",
+                                    )
+                                }
+                            }
                             IconButton(onClick = { showSettings = !showSettings }) {
                                 Icon(
                                     imageVector = AuxioIcons.Settings,
@@ -533,34 +650,6 @@ fun AuxioApp(
                                 modifier = Modifier.matchParentSize(),
                                 onDismiss = { playlistMenu = false },
                             )
-                        }
-                    }
-
-                    message?.let { shown ->
-                        Box(modifier = Modifier.fillMaxWidth()) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth().padding(end = 8.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Text(
-                                    text = shown.text,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color =
-                                        if (shown.error) MaterialTheme.colorScheme.error
-                                        else MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.weight(1f).padding(start = 16.dp),
-                                )
-                                if (pendingUndo != null) {
-                                    TextButton(onClick = ::undoRemoval) { Text("Undo") }
-                                }
-                            }
-                            // The status row dismisses an open playlist menu like the bars do.
-                            if (playlistMenu) {
-                                MenuScrim(
-                                    modifier = Modifier.matchParentSize(),
-                                    onDismiss = { playlistMenu = false },
-                                )
-                            }
                         }
                     }
 
@@ -629,39 +718,74 @@ fun AuxioApp(
                             val genre = openGenre
                             val playlist = openPlaylist
                             when {
-                                album != null ->
+                                album != null -> {
+                                    val tracks =
+                                        remember(album.tracks, sortMode, ignorePunctuation) {
+                                            Sorting.tracks(
+                                                album.tracks,
+                                                sortMode,
+                                                ignorePunctuation,
+                                            )
+                                        }
                                     AlbumDetail(
-                                        album = album,
+                                        album = album.copy(tracks = tracks),
                                         current = current,
                                         dateFormat = dateFormat,
                                         onBack = { openAlbum = null },
-                                        onPlay = { index -> play(album.tracks, index) },
-                                        onShuffle = { shufflePlay(album.tracks) },
+                                        onPlay = { index -> play(tracks, index) },
+                                        onShuffle = { shufflePlay(tracks) },
                                         modifier = contentModifier,
                                     )
-                                artist != null ->
+                                }
+                                artist != null -> {
+                                    val albums =
+                                        remember(artist.albums, sortMode, ignorePunctuation) {
+                                            Sorting.albums(
+                                                artist.albums,
+                                                sortMode,
+                                                ignorePunctuation,
+                                            )
+                                        }
+                                    val tracks =
+                                        remember(artist.tracks, sortMode, ignorePunctuation) {
+                                            Sorting.tracks(
+                                                artist.tracks,
+                                                sortMode,
+                                                ignorePunctuation,
+                                            )
+                                        }
                                     ArtistDetail(
-                                        artist = artist,
+                                        artist = artist.copy(albums = albums, tracks = tracks),
                                         current = current,
                                         collageSeed = collageSeed,
                                         dateFormat = dateFormat,
                                         onBack = { openArtist = null },
                                         onOpenAlbum = { openAlbum = it },
-                                        onPlay = { index -> play(artist.tracks, index) },
-                                        onShuffle = { shufflePlay(artist.tracks) },
+                                        onPlay = { index -> play(tracks, index) },
+                                        onShuffle = { shufflePlay(tracks) },
                                         modifier = contentModifier,
                                     )
-                                genre != null ->
+                                }
+                                genre != null -> {
+                                    val tracks =
+                                        remember(genre.tracks, sortMode, ignorePunctuation) {
+                                            Sorting.tracks(
+                                                genre.tracks,
+                                                sortMode,
+                                                ignorePunctuation,
+                                            )
+                                        }
                                     TrackCollectionDetail(
                                         title = genre.name,
-                                        subtitle = count(genre.tracks.size, "song"),
-                                        tracks = genre.tracks,
+                                        subtitle = count(tracks.size, "song"),
+                                        tracks = tracks,
                                         current = current,
                                         onBack = { openGenre = null },
-                                        onPlay = { index -> play(genre.tracks, index) },
-                                        onShuffle = { shufflePlay(genre.tracks) },
+                                        onPlay = { index -> play(tracks, index) },
+                                        onShuffle = { shufflePlay(tracks) },
                                         modifier = contentModifier,
                                     )
+                                }
                                 playlist != null ->
                                     TrackCollectionDetail(
                                         title = playlist.name,
@@ -672,6 +796,7 @@ fun AuxioApp(
                                             selectedSongs = emptySet()
                                         },
                                         onRemove = { track -> removeTrack(playlist, track) },
+                                        onMove = { from, to -> moveTrack(playlist, from, to) },
                                         onDelete = { deletingPlaylist = playlist },
                                         current = current,
                                         onBack = { openPlaylist = null },
@@ -688,6 +813,14 @@ fun AuxioApp(
                                                     onClick = {
                                                         section = entry
                                                         playlistMenu = false
+                                                        sortMenu = false
+                                                        if (
+                                                            entry != Section.Songs &&
+                                                                entry != Section.Albums &&
+                                                                sortMode.isDate
+                                                        ) {
+                                                            sortMode = SortMode.NAME_ASC
+                                                        }
                                                     },
                                                     text = { Text(entry.label) },
                                                 )
@@ -698,30 +831,30 @@ fun AuxioApp(
                                             when (section) {
                                                 Section.Songs ->
                                                     SongList(
-                                                        tracks = visibleSongs,
+                                                        tracks = orderedSongs,
                                                         current = current,
                                                         onPlay = { index ->
-                                                            play(visibleSongs, index)
+                                                            play(orderedSongs, index)
                                                         },
                                                         modifier = Modifier.fillMaxSize(),
                                                     )
                                                 Section.Albums ->
                                                     AlbumList(
-                                                        albums = visibleAlbums,
+                                                        albums = orderedAlbums,
                                                         dateFormat = dateFormat,
                                                         onOpen = { openAlbum = it },
                                                         modifier = Modifier.fillMaxSize(),
                                                     )
                                                 Section.Artists ->
                                                     ArtistList(
-                                                        artists = visibleArtists,
+                                                        artists = orderedArtists,
                                                         collageSeed = collageSeed,
                                                         onOpen = { openArtist = it },
                                                         modifier = Modifier.fillMaxSize(),
                                                     )
                                                 Section.Genres ->
                                                     GenreList(
-                                                        genres = visibleGenres,
+                                                        genres = orderedGenres,
                                                         onOpen = { openGenre = it },
                                                         modifier = Modifier.fillMaxSize(),
                                                     )
@@ -745,8 +878,11 @@ fun AuxioApp(
                                                         )
                                                     } else {
                                                         PlaylistList(
-                                                            playlists = visiblePlaylists,
-                                                            onOpen = { openPlaylist = it },
+                                                            playlists = orderedPlaylists,
+                                                            onOpen = {
+                                                                openPlaylist = it
+                                                                sortMenu = false
+                                                            },
                                                             modifier = Modifier.fillMaxSize(),
                                                         )
                                                     }
@@ -803,11 +939,11 @@ fun AuxioApp(
                                                 section != Section.Playlists &&
                                                     sectionTracks(
                                                             section,
-                                                            visibleSongs,
-                                                            visibleAlbums,
-                                                            visibleArtists,
-                                                            visibleGenres,
-                                                            visiblePlaylists,
+                                                            orderedSongs,
+                                                            orderedAlbums,
+                                                            orderedArtists,
+                                                            orderedGenres,
+                                                            orderedPlaylists,
                                                         )
                                                         .isNotEmpty() ->
                                                     FloatingActionButton(
@@ -815,11 +951,11 @@ fun AuxioApp(
                                                             shufflePlay(
                                                                 sectionTracks(
                                                                     section,
-                                                                    visibleSongs,
-                                                                    visibleAlbums,
-                                                                    visibleArtists,
-                                                                    visibleGenres,
-                                                                    visiblePlaylists,
+                                                                    orderedSongs,
+                                                                    orderedAlbums,
+                                                                    orderedArtists,
+                                                                    orderedGenres,
+                                                                    orderedPlaylists,
                                                                 )
                                                             )
                                                         },
@@ -845,7 +981,12 @@ fun AuxioApp(
                         }
                     }
 
-                    Box(modifier = Modifier.fillMaxWidth()) {
+                    Box(
+                        modifier =
+                            Modifier.fillMaxWidth().onSizeChanged {
+                                transportHeightPx = it.height
+                            }
+                    ) {
                         TransportBar(
                             current = current,
                             paused = paused,
@@ -881,6 +1022,37 @@ fun AuxioApp(
                         }
                     }
                 }
+            }
+
+            if (sortMenu) {
+                MenuScrim(onDismiss = { sortMenu = false })
+                SortMenu(
+                    sortMode = sortMode,
+                    datesAvailable = datesAvailable,
+                    onSelect = {
+                        sortMode = it
+                        sortMenu = false
+                    },
+                    modifier = Modifier.align(Alignment.TopEnd).padding(top = 88.dp, end = 16.dp),
+                )
+            }
+
+            // Feedback floats just above the player bar instead of taking a line of its own.
+            message?.let { shown ->
+                val bottom = with(LocalDensity.current) { transportHeightPx.toDp() } + 12.dp
+                ToastMessage(
+                    text = shown.text,
+                    error = shown.error,
+                    onUndo =
+                        when {
+                            pendingUndo != null -> ::undoRemoval
+                            pendingDeleteUndo != null -> ::undoDelete
+                            else -> null
+                        },
+                    modifier =
+                        Modifier.align(Alignment.BottomCenter)
+                            .padding(start = 16.dp, end = 16.dp, bottom = bottom),
+                )
             }
 
             addingSongsTo?.let { target ->
@@ -995,6 +1167,81 @@ private fun EmptyPlaylists(
     }
 }
 
+/** The sort choices, shown under the top bar's sort button. */
+@Composable
+private fun SortMenu(
+    sortMode: SortMode,
+    datesAvailable: Boolean,
+    onSelect: (SortMode) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        modifier = modifier.width(260.dp),
+        shape = RoundedCornerShape(12.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        tonalElevation = 6.dp,
+        shadowElevation = 10.dp,
+    ) {
+        Column(modifier = Modifier.padding(vertical = 8.dp)) {
+            SortMode.entries.forEach { mode ->
+                val enabled = !mode.isDate || datesAvailable
+                Text(
+                    text = (if (sortMode == mode) "✓ " else "") + mode.label,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color =
+                        if (enabled) MaterialTheme.colorScheme.onSurface
+                        else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
+                    modifier =
+                        Modifier.fillMaxWidth()
+                            .clickable(enabled = enabled) { onSelect(mode) }
+                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                )
+            }
+        }
+    }
+}
+
+/** A small floating notice above the player bar, with Undo when the action can be reversed. */
+@Composable
+private fun ToastMessage(
+    text: String,
+    error: Boolean,
+    onUndo: (() -> Unit)?,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        modifier = modifier,
+        shape = RoundedCornerShape(12.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        tonalElevation = 6.dp,
+        shadowElevation = 10.dp,
+    ) {
+        Row(
+            modifier =
+                Modifier.padding(
+                    start = 16.dp,
+                    end = if (onUndo == null) 16.dp else 8.dp,
+                    top = 8.dp,
+                    bottom = 8.dp,
+                ),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = text,
+                style = MaterialTheme.typography.bodyMedium,
+                color =
+                    if (error) MaterialTheme.colorScheme.error
+                    else MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.widthIn(max = 520.dp),
+            )
+            if (onUndo != null) {
+                Spacer(modifier = Modifier.width(4.dp))
+                TextButton(onClick = onUndo) { Text("Undo") }
+            }
+        }
+    }
+}
+
 /** Invisible catcher that closes an open playlist menu when the page behind it is clicked. */
 @Composable
 private fun MenuScrim(
@@ -1039,6 +1286,18 @@ private fun NewPlaylistDialog(
         )
     }
 }
+
+/** Songs the picker shows for a search: title, artist or album matches. */
+internal fun filterPickerSongs(songs: List<Track>, query: String): List<Track> =
+    if (query.isBlank()) {
+        songs
+    } else {
+        songs.filter {
+            it.title.contains(query, ignoreCase = true) ||
+                it.artist?.contains(query, ignoreCase = true) == true ||
+                it.album?.contains(query, ignoreCase = true) == true
+        }
+    }
 
 /** Picks songs from the library and appends them to the playlist being edited. */
 @Composable
@@ -1087,8 +1346,28 @@ internal fun AddSongsDialog(
                     if (songs.isEmpty()) {
                         Text("Your library has no songs to add.")
                     } else {
-                        LazyColumn(modifier = Modifier.heightIn(max = 360.dp)) {
-                            items(songs) { track ->
+                        var pickerQuery by remember { mutableStateOf("") }
+                        val matching =
+                            remember(songs, pickerQuery) {
+                                filterPickerSongs(songs, pickerQuery)
+                            }
+                        OutlinedTextField(
+                            value = pickerQuery,
+                            onValueChange = { pickerQuery = it },
+                            singleLine = true,
+                            label = { Text("Search songs") },
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        if (matching.isEmpty()) {
+                            Text(
+                                text = "No songs match that search.",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        LazyColumn(modifier = Modifier.heightIn(max = 320.dp)) {
+                            items(matching) { track ->
                                 Row(
                                     modifier =
                                         Modifier.fillMaxWidth()
@@ -1192,8 +1471,37 @@ private fun MenuEntry(text: String, onClick: () -> Unit) {
     )
 }
 
-/** Native file picker for an `.m3u`/`.m3u8` file; null when cancelled or off a desktop. */
+/**
+ * Native file picker for an `.m3u`/`.m3u8` file; null when cancelled or off a desktop.
+ *
+ * The GTK/Qt portals are tried first so the dialog is the one the desktop actually uses; AWT's
+ * FileDialog is the fallback when neither tool is installed.
+ */
 private fun choosePlaylistFile(): Path? {
+    val zenity = findCommand("zenity")
+    val kdialog = if (zenity == null) findCommand("kdialog") else null
+    val native =
+        when {
+            zenity != null ->
+                listOf(
+                    zenity,
+                    "--file-selection",
+                    "--title=Import playlist",
+                    "--file-filter=Playlist files | *.m3u *.m3u8",
+                )
+            kdialog != null ->
+                listOf(
+                    kdialog,
+                    "--title",
+                    "Import playlist",
+                    "--getopenfilename",
+                    System.getProperty("user.home") ?: ".",
+                    "*.m3u *.m3u8",
+                )
+            else -> null
+        }
+    if (native != null) return runNativePicker(native)
+
     if (GraphicsEnvironment.isHeadless()) return null
 
     val dialog = FileDialog(null as Frame?, "Import playlist", FileDialog.LOAD)
@@ -1207,6 +1515,29 @@ private fun choosePlaylistFile(): Path? {
     val file = dialog.file ?: return null
     return Path.of(directory, file)
 }
+
+/** Full path to [name] on PATH, if the desktop has it. */
+private fun findCommand(name: String): String? =
+    System.getenv("PATH")
+        .orEmpty()
+        .split(java.io.File.pathSeparator)
+        .asSequence()
+        .mapNotNull { directory -> runCatching { Path.of(directory, name) }.getOrNull() }
+        .firstOrNull { Files.isExecutable(it) }
+        ?.toString()
+
+/** Runs a portal picker and returns the chosen file; null on cancel or failure. */
+private fun runNativePicker(command: List<String>): Path? =
+    runCatching {
+            val process = ProcessBuilder(command).start()
+            val output = process.inputStream.bufferedReader().use { it.readText() }.trim()
+            if (process.waitFor() == 0 && output.isNotEmpty()) {
+                Path.of(output.lineSequence().first().trim())
+            } else {
+                null
+            }
+        }
+        .getOrNull()
 
 @Composable
 private fun SettingsPage(
@@ -2114,10 +2445,15 @@ private fun TrackRow(
     onClick: () -> Unit,
     artwork: ImageBitmap? = null,
     onRemove: (() -> Unit)? = null,
+    onMove: ((Int) -> Unit)? = null,
 ) {
+    var dragOffset by remember { mutableStateOf(0f) }
+    var rowHeight by remember { mutableStateOf(1) }
+
     Row(
         modifier =
             Modifier.fillMaxWidth()
+                .onSizeChanged { rowHeight = it.height }
                 .background(
                     if (playing) MaterialTheme.colorScheme.secondaryContainer
                     else MaterialTheme.colorScheme.surface
@@ -2134,8 +2470,35 @@ private fun TrackRow(
         if (onRemove != null) {
             IconButton(onClick = onRemove) {
                 Icon(
-                    imageVector = AuxioIcons.Remove,
+                    imageVector = AuxioIcons.Close,
                     contentDescription = "Remove from playlist",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+        if (onMove != null) {
+            Box(
+                modifier =
+                    Modifier.size(48.dp).pointerInput(track.id, onMove) {
+                        detectVerticalDragGestures(
+                            onDragStart = { dragOffset = 0f },
+                            onVerticalDrag = { change, amount ->
+                                change.consume()
+                                dragOffset += amount
+                            },
+                            onDragEnd = {
+                                val steps = (dragOffset / rowHeight.coerceAtLeast(1)).roundToInt()
+                                dragOffset = 0f
+                                if (steps != 0) onMove(steps)
+                            },
+                            onDragCancel = { dragOffset = 0f },
+                        )
+                    },
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    imageVector = AuxioIcons.DragHandle,
+                    contentDescription = "Reorder song",
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
@@ -2346,6 +2709,7 @@ private fun TrackCollectionDetail(
     tracks: List<Track>,
     onAddSongs: (() -> Unit)? = null,
     onRemove: ((Track) -> Unit)? = null,
+    onMove: ((Int, Int) -> Unit)? = null,
     onDelete: (() -> Unit)? = null,
     current: Track?,
     onBack: () -> Unit,
@@ -2436,6 +2800,12 @@ private fun TrackCollectionDetail(
                             artwork = rememberArtwork(listOf(track)),
                             onClick = { onPlay(index) },
                             onRemove = onRemove?.let { remove -> { remove(track) } },
+                            onMove =
+                                onMove?.let { move ->
+                                    { delta ->
+                                        move(index, (index + delta).coerceIn(0, tracks.lastIndex))
+                                    }
+                                },
                         )
                     }
                 }
