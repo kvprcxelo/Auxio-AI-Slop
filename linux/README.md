@@ -27,9 +27,9 @@ split multi-artist tags, and a switch that sorts
 `*Song` or `(Song)` under its first letter instead of the symbol. Titles fall back to file names
 when a file carries no tags. The window's colour scheme follows your desktop's accent, or your
 wallpaper through matugen, or a seed colour you pick — see [Theming](#theming). Album artist and disc
-numbers are not read yet, and playlists can be created and imported from the playlists tab and
-have songs added to them, though songs cannot yet be removed or reordered. There is no MPRIS,
-search ranking or ReplayGain.
+numbers are not read yet, and playlists can be created, imported and deleted from the playlists
+tab and have songs added or removed, with an undo for removals, though songs cannot yet be
+reordered. There is no MPRIS, search ranking or ReplayGain.
 
 ## Requirements
 
@@ -71,7 +71,9 @@ cache and re-reads every file. Either kind of scan rewrites it for the next relo
 to your music. Playlists created or imported in the playlists tab are written here; an import
 copies the file and makes its entries absolute, so relative paths still resolve after the move.
 **Add songs** on a playlist page appends the chosen songs' paths to that file and skips any it
-already lists, so playlists stay editable in other players.
+already lists, so playlists stay editable in other players. Once a playlist has songs the button
+moves to the corner; removing a song can be undone from the notice, and the trash button in the
+page header deletes the playlist's file.
 
 ## Theming
 

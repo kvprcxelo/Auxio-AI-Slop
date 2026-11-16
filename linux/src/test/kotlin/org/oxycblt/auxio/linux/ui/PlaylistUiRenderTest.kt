@@ -59,6 +59,8 @@ class PlaylistUiRenderTest {
         name: String,
         playlistTab: Boolean,
         fabY: Float?,
+        emptyMenu: Boolean = false,
+        dismissMenu: Boolean = false,
     ): Path {
         val songs = tracks()
         val player = FakePlayer()
@@ -86,11 +88,25 @@ class PlaylistUiRenderTest {
                     click(1052f, fabY)
                     scene.render()
                 }
+                if (emptyMenu) {
+                    click(550f, 435f)
+                    scene.render()
+                }
 
                 scene.render()
                 val image = scene.render()
                 val encoded = requireNotNull(image.encodeToData(EncodedImageFormat.PNG))
                 Files.write(output, encoded.bytes)
+
+                if (dismissMenu) {
+                    // Click empty space in the list, well away from the menu.
+                    click(500f, 300f)
+                    scene.render()
+                    val dismissed = scene.render()
+                    val dismissedPng =
+                        requireNotNull(dismissed.encodeToData(EncodedImageFormat.PNG))
+                    Files.write(output.resolveSibling("$name-dismissed.png"), dismissedPng.bytes)
+                }
             } finally {
                 scene.close()
             }
@@ -211,6 +227,31 @@ class PlaylistUiRenderTest {
                         .contains(songs.first().path.toAbsolutePath().toString()),
                     "the song was not written to the playlist",
                 )
+
+                // Remove it with the row's minus button, then put it back from the notice.
+                click(1060f, 315f)
+                repeat(20) {
+                    Thread.sleep(50)
+                    scene.render()
+                }
+                shot("playlist-removed")
+                assertTrue(
+                    !Files.readString(playlistFile)
+                        .contains(songs.first().path.toAbsolutePath().toString()),
+                    "the song was not removed from the playlist",
+                )
+
+                click(1055f, 104f)
+                repeat(20) {
+                    Thread.sleep(50)
+                    scene.render()
+                }
+                shot("playlist-restored")
+                assertTrue(
+                    Files.readString(playlistFile)
+                        .contains(songs.first().path.toAbsolutePath().toString()),
+                    "undo did not restore the song",
+                )
             } finally {
                 scene.close()
             }
@@ -254,6 +295,51 @@ class PlaylistUiRenderTest {
         }
 
         println("ADD_PICKER $output")
+    }
+
+    @Test
+    fun `clicking outside the playlist menu closes it`() {
+        val songs = tracks()
+        val path =
+            render(
+                listOf(Playlist("Mix", songs, Path.of("Mix.m3u"))),
+                "menu-dismiss",
+                playlistTab = true,
+                fabY = 566f,
+                dismissMenu = true,
+            )
+        val image =
+            javax.imageio.ImageIO.read(path.resolveSibling("menu-dismiss-dismissed.png").toFile())
+        val pixel = java.awt.Color(image.getRGB(970, 470))
+        assertTrue(
+            pixel.red < 50 && pixel.green < 50,
+            "the menu stayed open (${pixel.red}, ${pixel.green}, ${pixel.blue})",
+        )
+    }
+
+    @Test
+    fun `clicking outside the empty playlists menu closes it`() {
+        val path =
+            render(
+                emptyList(),
+                "empty-menu-dismiss",
+                playlistTab = true,
+                fabY = null,
+                emptyMenu = true,
+                dismissMenu = true,
+            )
+        val opened = javax.imageio.ImageIO.read(path.toFile())
+        val dismissed =
+            javax.imageio.ImageIO.read(
+                path.resolveSibling("empty-menu-dismiss-dismissed.png").toFile()
+            )
+        val openPixel = java.awt.Color(opened.getRGB(550, 400))
+        val closedPixel = java.awt.Color(dismissed.getRGB(550, 400))
+        assertTrue(openPixel.red > 50, "the empty playlists menu did not open")
+        assertTrue(
+            closedPixel.red < 50,
+            "the empty playlists menu stayed open (${closedPixel.red})",
+        )
     }
 
     @Test

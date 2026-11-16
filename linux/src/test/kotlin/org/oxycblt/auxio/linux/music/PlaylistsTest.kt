@@ -101,18 +101,43 @@ class PlaylistsTest {
         val tracks = listOf(Track(first, "A"), Track(second, "B"))
         Playlists.addTracks(playlist, tracks)
 
-        assertEquals(1, Playlists.removeTrack(playlist, tracks.first()))
-        assertEquals(0, Playlists.removeTrack(playlist, tracks.first()))
+        val removal = Playlists.removeTrack(playlist, tracks.first())
+        assertTrue(removal != null, "the first song was not removed")
+        assertEquals(1, removal!!.entries.size)
+        assertTrue(
+            Playlists.removeTrack(playlist, tracks.first()) == null,
+            "nothing left to remove",
+        )
         assertEquals(
             listOf("B"),
             Playlists.load(listOf(directory), tracks, directory).single().tracks.map { it.title },
         )
 
-        assertEquals(1, Playlists.removeTrack(playlist, tracks.last()))
+        assertTrue(Playlists.undoRemove(removal), "the removal could not be undone")
+        assertEquals(
+            listOf("A", "B"),
+            Playlists.load(listOf(directory), tracks, directory).single().tracks.map { it.title },
+            "undo restores the song at its original position",
+        )
+
+        assertTrue(Playlists.removeTrack(playlist, tracks.first()) != null)
+        assertTrue(Playlists.removeTrack(playlist, tracks.last()) != null)
         assertTrue(
             Playlists.load(listOf(directory), tracks, directory).single().tracks.isEmpty(),
             "an emptied playlist in the managed folder stays listed",
         )
+    }
+
+    @Test
+    fun `deletes a playlist file`() {
+        val directory = Files.createTempDirectory("auxio-m3u-delete")
+        val song = Files.writeString(directory.resolve("a.mp3"), "")
+        val track = Track(song, "A")
+        val file = Playlists.create("Mix", directory)!!
+
+        assertTrue(Playlists.delete(Playlist("Mix", listOf(track), file)))
+        assertTrue(!Files.exists(file), "the playlist file still exists")
+        assertTrue(Playlists.load(listOf(directory), listOf(track), directory).isEmpty())
     }
 
     @Test

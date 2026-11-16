@@ -35,6 +35,11 @@ import org.oxycblt.auxio.linux.Storage
  */
 data class Playlist(val name: String, val tracks: List<Track>, val path: Path)
 
+/**
+ * A song's removed lines and their positions, so [Playlists.undoRemove] can put it back exactly.
+ */
+data class RemovedSong(val file: Path, val entries: List<Pair<Int, String>>)
+
 object Playlists {
     private val EXTENSIONS = setOf("m3u", "m3u8")
 
@@ -158,31 +163,50 @@ object Playlists {
 
     /**
      * Removes every line pointing at [track] from [playlist]'s file, keeping its other entries and
-     * comments. Returns how many lines were removed, or a negative number if the file could not be
-     * written.
+     * comments, and returns those lines so the removal can be undone. Null when nothing was removed
+     * or the file could not be written.
      */
-    fun removeTrack(playlist: Playlist, track: Track): Int =
+    fun removeTrack(playlist: Playlist, track: Track): RemovedSong? =
         runCatching {
                 val file = playlist.path
                 val target = track.path.toAbsolutePath().normalize()
                 val kept = mutableListOf<String>()
-                var removed = 0
-                for (line in Files.readAllLines(file)) {
+                val removed = mutableListOf<Pair<Int, String>>()
+                Files.readAllLines(file).forEachIndexed { index, line ->
                     if (entryOf(file, line.trim()) == target) {
-                        removed++
+                        removed.add(index to line)
                     } else {
                         kept.add(line)
                     }
                 }
-                if (removed == 0) return 0
+                if (removed.isEmpty()) return null
 
                 Files.writeString(
                     file,
                     kept.joinToString("\n", postfix = if (kept.isEmpty()) "" else "\n"),
                 )
-                removed
+                RemovedSong(file, removed)
             }
-            .getOrDefault(-1)
+            .getOrNull()
+
+    /** Puts a removal back at its original lines; false when the file could not be written. */
+    fun undoRemove(removal: RemovedSong): Boolean =
+        runCatching {
+                val lines = Files.readAllLines(removal.file).toMutableList()
+                for ((index, line) in removal.entries.sortedBy { it.first }) {
+                    lines.add(index.coerceAtMost(lines.size), line)
+                }
+                Files.writeString(
+                    removal.file,
+                    lines.joinToString("\n", postfix = if (lines.isEmpty()) "" else "\n"),
+                )
+                true
+            }
+            .getOrDefault(false)
+
+    /** Deletes the playlist's file; true when it is gone. */
+    fun delete(playlist: Playlist): Boolean =
+        runCatching { Files.deleteIfExists(playlist.path) }.isSuccess
 
     /** The file's entries as absolute paths, for deciding what a playlist already has. */
     private fun entries(file: Path): Set<Path> =

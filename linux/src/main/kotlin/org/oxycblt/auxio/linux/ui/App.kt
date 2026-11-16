@@ -22,6 +22,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -117,6 +118,7 @@ import org.oxycblt.auxio.linux.music.LibraryScanner
 import org.oxycblt.auxio.linux.music.MusicLibrary
 import org.oxycblt.auxio.linux.music.Playlist
 import org.oxycblt.auxio.linux.music.Playlists
+import org.oxycblt.auxio.linux.music.RemovedSong
 import org.oxycblt.auxio.linux.music.Track
 import org.oxycblt.auxio.linux.playback.DebugLog
 import org.oxycblt.auxio.linux.playback.LoopMode
@@ -142,6 +144,13 @@ private enum class Section(val label: String) {
 
 /** A short-lived line of feedback: scan results, playback failures. */
 private data class Message(val text: String, val error: Boolean = false)
+
+/** A removed song that the notice can still put back. */
+private data class Undo(
+    val removal: RemovedSong,
+    val playlistPath: Path,
+    val title: String,
+)
 
 @Composable
 fun AuxioApp(
@@ -180,6 +189,8 @@ fun AuxioApp(
     var playlistMenu by remember { mutableStateOf(false) }
     var addingSongsTo by remember { mutableStateOf<Playlist?>(null) }
     var selectedSongs by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var pendingUndo by remember { mutableStateOf<Undo?>(null) }
+    var deletingPlaylist by remember { mutableStateOf<Playlist?>(null) }
 
     val desktopAppearance = remember { Desktop.appearance() }
     val desktopWallpaper = remember { Desktop.wallpaper() }
@@ -214,12 +225,20 @@ fun AuxioApp(
     val scope = rememberCoroutineScope()
 
     /** Shows a message and clears it again, so nothing stale is left on screen. */
-    fun notify(text: String, error: Boolean = false) {
+    fun notify(
+        text: String,
+        error: Boolean = false,
+        durationMillis: Long = if (error) 8000 else 4000,
+    ) {
         val next = Message(text, error)
+        pendingUndo = null
         message = next
         scope.launch {
-            delay(if (error) 8000 else 4000)
-            if (message == next) message = null
+            delay(durationMillis)
+            if (message == next) {
+                message = null
+                pendingUndo = null
+            }
         }
     }
 
@@ -317,16 +336,60 @@ fun AuxioApp(
     /** Rewrites the playlist without [track], then refreshes both the list and the open page. */
     fun removeTrack(playlist: Playlist, track: Track) {
         scope.launch {
-            val removed = withContext(Dispatchers.IO) { Playlists.removeTrack(playlist, track) }
+            val removal = withContext(Dispatchers.IO) { Playlists.removeTrack(playlist, track) }
             val found = withContext(Dispatchers.IO) { Playlists.load(roots, songs) }
             playlists = found
             if (openPlaylist?.path == playlist.path) {
-                openPlaylist = found.firstOrNull { it.path == playlist.path }
+                // A playlist outside the managed folder stops being listed once its last song is
+                // gone; keep its page open anyway, so the empty state and Undo stay in view.
+                openPlaylist =
+                    found.firstOrNull { it.path == playlist.path }
+                        ?: if (removal != null) {
+                            playlist.copy(
+                                tracks = playlist.tracks.filterNot { it.path == track.path }
+                            )
+                        } else {
+                            playlist
+                        }
             }
-            when {
-                removed < 0 -> notify("Could not update ${playlist.name}", error = true)
-                removed == 0 -> notify("${track.title} is not in ${playlist.name}")
-                else -> notify("Removed ${count(removed, "song")} from ${playlist.name}")
+            if (removal == null) {
+                notify("Could not remove ${track.title} from ${playlist.name}", error = true)
+            } else {
+                // Longer than a normal notice, so a misclick has time to be undone.
+                notify("Removed ${track.title} from ${playlist.name}", durationMillis = 10_000)
+                pendingUndo = Undo(removal, playlist.path, track.title)
+            }
+        }
+    }
+
+    /** Puts the last removed song back, at the line it came from. */
+    fun undoRemoval() {
+        val pending = pendingUndo ?: return
+        pendingUndo = null
+        scope.launch {
+            val restored = withContext(Dispatchers.IO) { Playlists.undoRemove(pending.removal) }
+            val found = withContext(Dispatchers.IO) { Playlists.load(roots, songs) }
+            playlists = found
+            if (openPlaylist?.path == pending.playlistPath) {
+                openPlaylist = found.firstOrNull { it.path == pending.playlistPath }
+            }
+            if (restored) notify("Restored ${pending.title}")
+            else notify("Could not restore ${pending.title}", error = true)
+        }
+    }
+
+    /** Deletes the playlist file and leaves its page, since there is nothing left to show. */
+    fun deletePlaylist(playlist: Playlist) {
+        deletingPlaylist = null
+        scope.launch {
+            val deleted = withContext(Dispatchers.IO) { Playlists.delete(playlist) }
+            val found = withContext(Dispatchers.IO) { Playlists.load(roots, songs) }
+            playlists = found
+            if (deleted) {
+                if (openPlaylist?.path == playlist.path) openPlaylist = null
+                notify("Deleted ${playlist.name}")
+            } else {
+                notify("Could not delete ${playlist.name}", error = true)
             }
         }
     }
@@ -338,6 +401,15 @@ fun AuxioApp(
             onName = { newPlaylistName = it },
             onCreate = ::createPlaylist,
             onDismiss = { creatingPlaylist = false },
+        )
+    }
+
+    deletingPlaylist?.let { target ->
+        DeletePlaylistDialog(
+            name = target.name,
+            scheme = scheme,
+            onDelete = { deletePlaylist(target) },
+            onDismiss = { deletingPlaylist = null },
         )
     }
 
@@ -453,14 +525,22 @@ fun AuxioApp(
                     }
 
                     message?.let { shown ->
-                        Text(
-                            text = shown.text,
-                            style = MaterialTheme.typography.bodySmall,
-                            color =
-                                if (shown.error) MaterialTheme.colorScheme.error
-                                else MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(end = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                text = shown.text,
+                                style = MaterialTheme.typography.bodySmall,
+                                color =
+                                    if (shown.error) MaterialTheme.colorScheme.error
+                                    else MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.weight(1f).padding(start = 16.dp),
+                            )
+                            if (pendingUndo != null) {
+                                TextButton(onClick = ::undoRemoval) { Text("Undo") }
+                            }
+                        }
                     }
 
                     // The content takes the space left over by the transport bar. Without the
@@ -571,6 +651,7 @@ fun AuxioApp(
                                             selectedSongs = emptySet()
                                         },
                                         onRemove = { track -> removeTrack(playlist, track) },
+                                        onDelete = { deletingPlaylist = playlist },
                                         current = current,
                                         onBack = { openPlaylist = null },
                                         onPlay = { index -> play(playlist.tracks, index) },
@@ -583,7 +664,10 @@ fun AuxioApp(
                                             Section.entries.forEach { entry ->
                                                 Tab(
                                                     selected = section == entry,
-                                                    onClick = { section = entry },
+                                                    onClick = {
+                                                        section = entry
+                                                        playlistMenu = false
+                                                    },
                                                     text = { Text(entry.label) },
                                                 )
                                             }
@@ -627,6 +711,9 @@ fun AuxioApp(
                                                             onToggleMenu = {
                                                                 playlistMenu = !playlistMenu
                                                             },
+                                                            onDismissMenu = {
+                                                                playlistMenu = false
+                                                            },
                                                             onCreate = {
                                                                 playlistMenu = false
                                                                 newPlaylistName = ""
@@ -642,6 +729,16 @@ fun AuxioApp(
                                                             modifier = Modifier.fillMaxSize(),
                                                         )
                                                     }
+                                            }
+
+                                            // Clicking the page behind the menu closes it; the menu
+                                            // and its button draw above this layer.
+                                            if (
+                                                playlistMenu &&
+                                                    section == Section.Playlists &&
+                                                    visiblePlaylists.isNotEmpty()
+                                            ) {
+                                                MenuScrim { playlistMenu = false }
                                             }
 
                                             when {
@@ -827,38 +924,58 @@ private fun sectionTracks(
 private fun EmptyPlaylists(
     menuOpen: Boolean,
     onToggleMenu: () -> Unit,
+    onDismissMenu: () -> Unit,
     onCreate: () -> Unit,
     onImport: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Column(
-        modifier = modifier,
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
-    ) {
-        Icon(
-            imageVector = AuxioIcons.Playlist,
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.size(64.dp),
-        )
-        Spacer(modifier = Modifier.height(12.dp))
-        Text(
-            text = "Your playlists will show up here.",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Spacer(modifier = Modifier.height(12.dp))
+    Box(modifier = modifier) {
         if (menuOpen) {
-            PlaylistActionsMenu(onCreate = onCreate, onImport = onImport)
-            Spacer(modifier = Modifier.height(8.dp))
+            MenuScrim(onDismiss = onDismissMenu)
         }
-        Button(onClick = onToggleMenu) {
-            Text("New playlist")
-            Spacer(modifier = Modifier.width(8.dp))
-            Icon(imageVector = AuxioIcons.ArrowDropDown, contentDescription = null)
+        Column(
+            modifier = Modifier.fillMaxSize(),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
+        ) {
+            Icon(
+                imageVector = AuxioIcons.Playlist,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(64.dp),
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+            Text(
+                text = "Your playlists will show up here.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+            if (menuOpen) {
+                PlaylistActionsMenu(onCreate = onCreate, onImport = onImport)
+                Spacer(modifier = Modifier.height(8.dp))
+            }
+            Button(onClick = onToggleMenu) {
+                Text("New playlist")
+                Spacer(modifier = Modifier.width(8.dp))
+                Icon(imageVector = AuxioIcons.ArrowDropDown, contentDescription = null)
+            }
         }
     }
+}
+
+/** Invisible catcher that closes an open playlist menu when the page behind it is clicked. */
+@Composable
+private fun MenuScrim(onDismiss: () -> Unit) {
+    Box(
+        modifier =
+            Modifier.fillMaxSize()
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                    onClick = onDismiss,
+                )
+    )
 }
 
 @Composable
@@ -989,6 +1106,28 @@ internal fun AddSongsDialog(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun DeletePlaylistDialog(
+    name: String,
+    scheme: ColorScheme,
+    onDelete: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    MaterialTheme(colorScheme = scheme) {
+        AlertDialog(
+            onDismissRequest = onDismiss,
+            title = { Text("Delete playlist?") },
+            text = { Text("Delete $name? Its .m3u file will be removed.") },
+            confirmButton = {
+                TextButton(onClick = onDelete) {
+                    Text("Delete", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+        )
     }
 }
 
@@ -1711,6 +1850,7 @@ private fun DetailHeader(
     onBack: () -> Unit,
     cover: ImageBitmap? = null,
     reserveCover: Boolean = cover != null,
+    onDelete: (() -> Unit)? = null,
 ) {
     Row(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 8.dp),
@@ -1726,7 +1866,7 @@ private fun DetailHeader(
             Cover(bitmap = cover, size = 72.dp)
             Spacer(modifier = Modifier.width(12.dp))
         }
-        Column {
+        Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = title,
                 style = MaterialTheme.typography.titleLarge,
@@ -1740,6 +1880,15 @@ private fun DetailHeader(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
+        }
+        if (onDelete != null) {
+            IconButton(onClick = onDelete) {
+                Icon(
+                    imageVector = AuxioIcons.Delete,
+                    contentDescription = "Delete playlist",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         }
     }
 }
@@ -2164,107 +2313,110 @@ private fun TrackCollectionDetail(
     tracks: List<Track>,
     onAddSongs: (() -> Unit)? = null,
     onRemove: ((Track) -> Unit)? = null,
+    onDelete: (() -> Unit)? = null,
     current: Track?,
     onBack: () -> Unit,
     onPlay: (Int) -> Unit,
     onShuffle: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Column(modifier = modifier) {
-        DetailHeader(
-            title = title,
-            subtitle = subtitle,
-            cover = rememberArtwork(tracks),
-            reserveCover = true,
-            onBack = onBack,
-        )
+    Box(modifier = modifier) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            DetailHeader(
+                title = title,
+                subtitle = subtitle,
+                cover = rememberArtwork(tracks),
+                reserveCover = true,
+                onBack = onBack,
+                onDelete = onDelete,
+            )
 
-        Spacer(modifier = Modifier.size(16.dp))
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            Button(
-                onClick = { onPlay(0) },
-                enabled = tracks.isNotEmpty(),
-                modifier = Modifier.weight(1f),
-                contentPadding = PaddingValues(vertical = 12.dp),
+            Spacer(modifier = Modifier.size(16.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                Icon(imageVector = AuxioIcons.PlayArrow, contentDescription = null)
-                Spacer(modifier = Modifier.width(8.dp))
-                Text("Play")
-            }
-            OutlinedButton(
-                onClick = onShuffle,
-                enabled = tracks.isNotEmpty(),
-                modifier = Modifier.weight(1f),
-                contentPadding = PaddingValues(vertical = 12.dp),
-            ) {
-                Icon(imageVector = AuxioIcons.Shuffle, contentDescription = null)
-                Spacer(modifier = Modifier.width(8.dp))
-                Text("Shuffle")
-            }
-            // While the page is empty the centred button below is the way in, so the row keeps
-            // its two transport actions only.
-            if (onAddSongs != null && tracks.isNotEmpty()) {
-                OutlinedButton(
-                    onClick = onAddSongs,
+                Button(
+                    onClick = { onPlay(0) },
+                    enabled = tracks.isNotEmpty(),
                     modifier = Modifier.weight(1f),
                     contentPadding = PaddingValues(vertical = 12.dp),
                 ) {
-                    Icon(imageVector = AuxioIcons.Plus, contentDescription = null)
+                    Icon(imageVector = AuxioIcons.PlayArrow, contentDescription = null)
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("Add songs")
+                    Text("Play")
+                }
+                OutlinedButton(
+                    onClick = onShuffle,
+                    enabled = tracks.isNotEmpty(),
+                    modifier = Modifier.weight(1f),
+                    contentPadding = PaddingValues(vertical = 12.dp),
+                ) {
+                    Icon(imageVector = AuxioIcons.Shuffle, contentDescription = null)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Shuffle")
                 }
             }
-        }
-        Spacer(modifier = Modifier.size(16.dp))
+            Spacer(modifier = Modifier.size(16.dp))
 
-        if (tracks.isEmpty()) {
-            Column(
-                modifier = Modifier.fillMaxSize().padding(horizontal = 32.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center,
-            ) {
-                Icon(
-                    imageVector = AuxioIcons.Playlist,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(64.dp),
-                )
-                Spacer(modifier = Modifier.height(12.dp))
-                Text(
-                    text =
-                        if (onAddSongs != null) "This playlist is empty." else "No songs here yet.",
-                    style = MaterialTheme.typography.titleMedium,
-                )
-                if (onAddSongs != null) {
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = "Add songs to start listening.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+            if (tracks.isEmpty()) {
+                Column(
+                    modifier = Modifier.fillMaxSize().padding(horizontal = 32.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center,
+                ) {
+                    Icon(
+                        imageVector = AuxioIcons.Playlist,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(64.dp),
                     )
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Button(onClick = onAddSongs) {
-                        Icon(imageVector = AuxioIcons.Plus, contentDescription = null)
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Add songs")
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text(
+                        text =
+                            if (onAddSongs != null) "This playlist is empty."
+                            else "No songs here yet.",
+                        style = MaterialTheme.typography.titleMedium,
+                    )
+                    if (onAddSongs != null) {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "Add songs to start listening.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Button(onClick = onAddSongs) {
+                            Icon(imageVector = AuxioIcons.Plus, contentDescription = null)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Add songs")
+                        }
+                    }
+                }
+            } else {
+                LazyColumn(modifier = Modifier.fillMaxSize()) {
+                    itemsIndexed(tracks) { index, track ->
+                        TrackRow(
+                            track = track,
+                            subtitle = listOfNotNull(track.artist, track.album).joinToString(" · "),
+                            playing = current?.id == track.id,
+                            artwork = rememberArtwork(listOf(track)),
+                            onClick = { onPlay(index) },
+                            onRemove = onRemove?.let { remove -> { remove(track) } },
+                        )
                     }
                 }
             }
-        } else {
-            LazyColumn(modifier = Modifier.fillMaxSize()) {
-                itemsIndexed(tracks) { index, track ->
-                    TrackRow(
-                        track = track,
-                        subtitle = listOfNotNull(track.artist, track.album).joinToString(" · "),
-                        playing = current?.id == track.id,
-                        artwork = rememberArtwork(listOf(track)),
-                        onClick = { onPlay(index) },
-                        onRemove = onRemove?.let { remove -> { remove(track) } },
-                    )
-                }
+        }
+
+        if (onAddSongs != null && tracks.isNotEmpty()) {
+            FloatingActionButton(
+                onClick = onAddSongs,
+                modifier = Modifier.align(Alignment.BottomEnd).padding(24.dp),
+                shape = RoundedCornerShape(20.dp),
+                containerColor = MaterialTheme.colorScheme.primaryContainer,
+            ) {
+                Icon(imageVector = AuxioIcons.Plus, contentDescription = "Add songs")
             }
         }
     }

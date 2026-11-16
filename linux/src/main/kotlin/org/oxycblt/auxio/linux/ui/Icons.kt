@@ -98,6 +98,13 @@ internal object AuxioIcons {
 
     val Remove: ImageVector by lazy { icon("Remove", "M19 13H5v-2h14v2z") }
 
+    val Delete: ImageVector by lazy {
+        icon(
+            "Delete",
+            "M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z",
+        )
+    }
+
     val Playlist: ImageVector by lazy {
         icon("Playlist", "M4 6h12v2H4zM4 10h12v2H4zM4 14h8v2H4zM16 13v8l6-4z")
     }
