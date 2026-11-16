@@ -552,6 +552,90 @@ class PlaylistUiRenderTest {
 
     @OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
     @Test
+    fun `drops use the visible order after changing the sort`() {
+        val songs = tracks()
+        val directory = songs.first().path.parent
+        val file = directory.resolve("Kept.m3u")
+        val alpha = songs[0].copy(title = "Alpha")
+        val zulu = songs[1].copy(title = "Zulu")
+        val mike = songs[2].copy(title = "Mike")
+        val stored = listOf(alpha, zulu, mike)
+        Files.writeString(
+            file,
+            stored.joinToString("\n", postfix = "\n") {
+                it.path.toAbsolutePath().toString()
+            },
+        )
+        val playlist = Playlist("Kept", stored, file)
+        val player = FakePlayer()
+        val output = Files.createTempDirectory("auxio-playlist-sort-change")
+        try {
+            val scene =
+                ImageComposeScene(width = 1100, height = 720) {
+                    AuxioApp(
+                        player = player,
+                        library = Library.build(songs, playlists = listOf(playlist)),
+                        roots = listOf(directory),
+                        initialSeparators = ";",
+                    )
+                }
+            try {
+                fun click(x: Float, y: Float) {
+                    scene.sendPointerEvent(PointerEventType.Press, Offset(x, y))
+                    scene.sendPointerEvent(PointerEventType.Release, Offset(x, y))
+                    scene.render()
+                }
+
+                fun settle(frames: Int = 6) {
+                    repeat(frames) {
+                        Thread.sleep(50)
+                        scene.render()
+                    }
+                }
+
+                scene.render()
+                click(990f, 122f)
+                click(300f, 170f)
+                settle()
+
+                // Name A-Z puts Alpha at index 0, where it already was. The row therefore keeps
+                // its pointer handler while the list around it changes.
+                click(1011f, 48f)
+                settle()
+                click(950f, 160f)
+                settle()
+
+                // Drag that same row down one; the visible order is Alpha, Mike, Zulu.
+                scene.sendPointerEvent(PointerEventType.Press, Offset(500f, 315f))
+                repeat(8) { step ->
+                    scene.sendPointerEvent(
+                        PointerEventType.Move,
+                        Offset(500f, 315f + 10f * (step + 1)),
+                        buttons = PointerButtons(isPrimaryPressed = true),
+                    )
+                    scene.render()
+                }
+                scene.sendPointerEvent(PointerEventType.Release, Offset(500f, 395f))
+                settle(20)
+
+                val entries = Files.readAllLines(file).map { it.trim() }.filter { it.isNotEmpty() }
+                val expected = listOf(mike, alpha, zulu).map { it.path.toAbsolutePath().toString() }
+                assertTrue(
+                    entries == expected,
+                    "the drop used a stale order instead of the visible one ($entries)",
+                )
+            } finally {
+                scene.close()
+            }
+        } finally {
+            player.close()
+        }
+
+        println("PLAYLIST_SORT_CHANGE $output")
+    }
+
+    @OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
+    @Test
     fun `drags a playlist song into a new order and saves it`() {
         val songs = tracks()
         val directory = songs.first().path.parent

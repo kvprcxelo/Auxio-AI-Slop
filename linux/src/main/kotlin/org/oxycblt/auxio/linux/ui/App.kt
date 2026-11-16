@@ -79,6 +79,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -440,20 +441,17 @@ fun AuxioApp(
     }
 
     /**
-     * Reorders the open playlist to the visible order and persists that order to its file.
+     * Reorders the open playlist to exactly the order the page showed after a drop and persists it.
      *
-     * [ordered] is what the page shows, which may be sorted. Dropping while sorted therefore writes
-     * the dragged order to the `.m3u` and returns the page to Playlist order, so the file and the
-     * list agree afterwards.
+     * The caller passes the whole visible list instead of indices: a sort can change between the
+     * row being composed and the drop, and index arithmetic against a stale list would save the
+     * wrong entries. Dropping while sorted still writes the visible order and returns the page to
+     * Playlist order.
      */
-    fun moveTrack(playlist: Playlist, ordered: List<Track>, from: Int, to: Int) {
-        if (from == to || from !in ordered.indices) return
-        val target = to.coerceIn(0, ordered.lastIndex)
-        if (from == target) return
+    fun moveTrack(playlist: Playlist, ordered: List<Track>) {
+        if (ordered == playlist.tracks) return
 
-        val tracks = ordered.toMutableList()
-        tracks.add(target, tracks.removeAt(from))
-        val updated = playlist.copy(tracks = tracks)
+        val updated = playlist.copy(tracks = ordered)
         playlistSort = null
         if (openPlaylist?.path == playlist.path) openPlaylist = updated
         playlists = playlists.map { if (it.path == playlist.path) updated else it }
@@ -835,8 +833,8 @@ fun AuxioApp(
                                             selectedSongs = emptySet()
                                         },
                                         onRemove = { track -> removeTrack(playlist, track) },
-                                        onMove = { from, to ->
-                                            moveTrack(playlist, tracks, from, to)
+                                        onMove = { visibleOrder ->
+                                            moveTrack(playlist, visibleOrder)
                                         },
                                         onDelete = { deletingPlaylist = playlist },
                                         coverTracks = playlist.tracks,
@@ -2602,6 +2600,12 @@ private fun TrackRow(
     onDragCancel: (() -> Unit)? = null,
 ) {
     var rowHeight by remember { mutableStateOf(1) }
+    // The row can stay in place while the sort around it changes, so its pointer handler must read
+    // the latest callbacks instead of the ones captured when it was first composed.
+    val latestDragStart = rememberUpdatedState(onDragStart)
+    val latestDrag = rememberUpdatedState(onDrag)
+    val latestDragEnd = rememberUpdatedState(onDragEnd)
+    val latestDragCancel = rememberUpdatedState(onDragCancel)
     val animatedShift by
         animateFloatAsState(
             targetValue = if (dragging) 0f else shift,
@@ -2631,13 +2635,15 @@ private fun TrackRow(
                     if (onDragStart != null) {
                         Modifier.pointerInput(track.id) {
                             detectVerticalDragGestures(
-                                onDragStart = { onDragStart(rowHeight.toFloat()) },
+                                onDragStart = {
+                                    latestDragStart.value?.invoke(rowHeight.toFloat())
+                                },
                                 onVerticalDrag = { change, amount ->
                                     change.consume()
-                                    onDrag?.invoke(amount)
+                                    latestDrag.value?.invoke(amount)
                                 },
-                                onDragEnd = { onDragEnd?.invoke() },
-                                onDragCancel = { onDragCancel?.invoke() },
+                                onDragEnd = { latestDragEnd.value?.invoke() },
+                                onDragCancel = { latestDragCancel.value?.invoke() },
                             )
                         }
                     } else {
@@ -2884,7 +2890,7 @@ private fun TrackCollectionDetail(
     tracks: List<Track>,
     onAddSongs: (() -> Unit)? = null,
     onRemove: ((Track) -> Unit)? = null,
-    onMove: ((Int, Int) -> Unit)? = null,
+    onMove: ((List<Track>) -> Unit)? = null,
     onDelete: (() -> Unit)? = null,
     coverTracks: List<Track>? = null,
     current: Track?,
@@ -2916,7 +2922,11 @@ private fun TrackCollectionDetail(
                 .coerceIn(0, tracks.lastIndex)
         dragFrom = null
         dragDistance = 0f
-        if (commit && from != target) onMove?.invoke(from, target)
+        if (commit && from != target) {
+            val visibleOrder = tracks.toMutableList()
+            visibleOrder.add(target, visibleOrder.removeAt(from))
+            onMove?.invoke(visibleOrder)
+        }
     }
 
     Box(modifier = modifier) {
