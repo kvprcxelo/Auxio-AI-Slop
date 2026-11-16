@@ -449,6 +449,9 @@ fun AuxioApp(
      * Playlist order.
      */
     fun moveTrack(playlist: Playlist, ordered: List<Track>) {
+        // A drag in a sorted view can land exactly on the stored order. The file needs no rewrite,
+        // but the page must leave the sorted view instead of snapping back to it.
+        playlistSort = null
         if (ordered == playlist.tracks) return
 
         val updated = playlist.copy(tracks = ordered)

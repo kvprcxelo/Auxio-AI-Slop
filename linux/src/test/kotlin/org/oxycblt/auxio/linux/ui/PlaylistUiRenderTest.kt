@@ -636,6 +636,109 @@ class PlaylistUiRenderTest {
 
     @OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
     @Test
+    fun `drops matching the stored order leave the sorted view`() {
+        val songs = tracks()
+        val directory = songs.first().path.parent
+        val bare = Files.createTempDirectory("auxio-playlist-bare")
+        val tone = Path.of(javaClass.getResource("/tone.wav")?.toURI() ?: error("tone missing"))
+        val mike = Track(Files.copy(tone, bare.resolve("mike.wav")), "Mike")
+        val zulu = Track(Files.copy(tone, bare.resolve("zulu.wav")), "Zulu")
+        // Alpha carries artwork; Mike and Zulu do not, so the first visible row identifies the
+        // order without needing to read text out of the rendered page.
+        val alpha = songs[0].copy(title = "Alpha")
+        val stored = listOf(mike, alpha, zulu)
+        val file = directory.resolve("SortedBack.m3u")
+        Files.writeString(
+            file,
+            stored.joinToString("\n", postfix = "\n") {
+                it.path.toAbsolutePath().toString()
+            },
+        )
+        val playlist = Playlist("SortedBack", stored, file)
+        val player = FakePlayer()
+        val output = Files.createTempDirectory("auxio-playlist-sorted-back")
+        try {
+            val scene =
+                ImageComposeScene(width = 1100, height = 720) {
+                    AuxioApp(
+                        player = player,
+                        library = Library.build(songs, playlists = listOf(playlist)),
+                        roots = listOf(directory),
+                        initialSeparators = ";",
+                    )
+                }
+            try {
+                fun click(x: Float, y: Float) {
+                    scene.sendPointerEvent(PointerEventType.Press, Offset(x, y))
+                    scene.sendPointerEvent(PointerEventType.Release, Offset(x, y))
+                    scene.render()
+                }
+
+                fun settle(frames: Int = 6) {
+                    repeat(frames) {
+                        Thread.sleep(50)
+                        scene.render(System.nanoTime())
+                    }
+                }
+
+                scene.render()
+                click(990f, 122f)
+                click(300f, 170f)
+                settle()
+
+                // Name A-Z is Alpha, Mike, Zulu. Drag Alpha down one, which lands on the stored
+                // Mike, Alpha, Zulu order.
+                click(1011f, 48f)
+                settle()
+                click(950f, 160f)
+                settle()
+                scene.sendPointerEvent(PointerEventType.Press, Offset(500f, 315f))
+                repeat(8) { step ->
+                    scene.sendPointerEvent(
+                        PointerEventType.Move,
+                        Offset(500f, 315f + 10f * (step + 1)),
+                        buttons = PointerButtons(isPrimaryPressed = true),
+                    )
+                    scene.render()
+                }
+                scene.sendPointerEvent(PointerEventType.Release, Offset(500f, 395f))
+                settle(20)
+
+                val entries = Files.readAllLines(file).map { it.trim() }.filter { it.isNotEmpty() }
+                assertTrue(
+                    entries == stored.map { it.path.toAbsolutePath().toString() },
+                    "the stored order was unexpectedly rewritten ($entries)",
+                )
+
+                val image = scene.render(System.nanoTime())
+                val rendered = output.resolve("after.png")
+                Files.write(
+                    rendered,
+                    requireNotNull(image.encodeToData(EncodedImageFormat.PNG)).bytes,
+                )
+                val shot = javax.imageio.ImageIO.read(rendered.toFile())
+                val firstRow = java.awt.Color(shot.getRGB(30, 298))
+                val secondRow = java.awt.Color(shot.getRGB(30, 370))
+                assertTrue(
+                    firstRow.red < 100,
+                    "the page stayed sorted instead of showing Mike first (${firstRow.red})",
+                )
+                assertTrue(
+                    secondRow.red > 150,
+                    "Alpha's cover was not in the second row (${secondRow.red})",
+                )
+            } finally {
+                scene.close()
+            }
+        } finally {
+            player.close()
+        }
+
+        println("PLAYLIST_SORTED_BACK $output")
+    }
+
+    @OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
+    @Test
     fun `drags a playlist song into a new order and saves it`() {
         val songs = tracks()
         val directory = songs.first().path.parent
