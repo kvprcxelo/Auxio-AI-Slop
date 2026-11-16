@@ -38,14 +38,12 @@ import java.nio.file.Path
 import kotlin.test.Test
 import kotlin.test.assertTrue
 import org.jetbrains.skia.EncodedImageFormat
-import org.junit.jupiter.api.Assumptions.assumeTrue
 import org.oxycblt.auxio.linux.music.Album
 import org.oxycblt.auxio.linux.music.Artist
 import org.oxycblt.auxio.linux.music.Library
 import org.oxycblt.auxio.linux.music.Playlist
 import org.oxycblt.auxio.linux.music.Track
-import org.oxycblt.auxio.linux.playback.Mpv
-import org.oxycblt.auxio.linux.playback.MpvPlayer
+import org.oxycblt.auxio.linux.playback.FakePlayer
 
 /**
  * Renders the window off-screen and clicks through its screens, so layout can be reviewed without a
@@ -54,11 +52,6 @@ import org.oxycblt.auxio.linux.playback.MpvPlayer
 class UiRenderTest {
     @Test
     fun `renders every screen`() {
-        assumeTrue(
-            runCatching { Mpv.load() }.isSuccess,
-            "libmpv is not installed, so the player cannot be constructed",
-        )
-
         val fixture =
             Path.of(javaClass.getResource("/artwork.flac")?.toURI() ?: error("fixture missing"))
         val tracks =
@@ -75,7 +68,7 @@ class UiRenderTest {
                 )
             }
 
-        val player = MpvPlayer(audioDriver = "null")
+        val player = FakePlayer()
         val output = Files.createTempDirectory("auxio-ui")
         try {
             val scene =
@@ -85,7 +78,7 @@ class UiRenderTest {
                         library =
                             Library.build(
                                 tracks,
-                                playlists = listOf(Playlist("Mix", tracks)),
+                                playlists = listOf(Playlist("Mix", tracks, Path.of("Mix.m3u"))),
                             ),
                         roots = listOf(fixture.parent),
                         initialSeparators = ";/",
@@ -159,11 +152,6 @@ class UiRenderTest {
     /** A taller window, because the settings page is longer than the normal one. */
     @Test
     fun `renders the whole settings page`() {
-        assumeTrue(
-            runCatching { Mpv.load() }.isSuccess,
-            "libmpv is not installed, so the player cannot be constructed",
-        )
-
         val fixture =
             Path.of(javaClass.getResource("/artwork.flac")?.toURI() ?: error("fixture missing"))
         val tracks =
@@ -179,7 +167,7 @@ class UiRenderTest {
                 )
             }
 
-        val player = MpvPlayer(audioDriver = "null")
+        val player = FakePlayer()
         val output = Files.createTempDirectory("auxio-settings").resolve("settings-full.png")
         try {
             val scene =

@@ -18,29 +18,33 @@
  
 package org.oxycblt.auxio.linux.ui
 
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.ui.ImageComposeScene
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEvent
+import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.pointer.PointerEventType
 import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.test.Test
 import kotlin.test.assertTrue
 import org.jetbrains.skia.EncodedImageFormat
-import org.junit.jupiter.api.Assumptions.assumeTrue
 import org.oxycblt.auxio.linux.music.Library
 import org.oxycblt.auxio.linux.music.Playlist
 import org.oxycblt.auxio.linux.music.Track
-import org.oxycblt.auxio.linux.playback.Mpv
-import org.oxycblt.auxio.linux.playback.MpvPlayer
+import org.oxycblt.auxio.linux.playback.FakePlayer
 
 /** Renders the playlist corner button in each state, and the shuffle button it sits beside. */
 class PlaylistUiRenderTest {
     private fun tracks(): List<Track> {
         val fixture =
             Path.of(javaClass.getResource("/artwork.flac")?.toURI() ?: error("fixture missing"))
+        val directory = Files.createTempDirectory("auxio-playlist-tracks")
         return List(4) { index ->
             Track(
-                path = fixture,
+                // Distinct paths, so each song has its own id in the picker.
+                path = Files.copy(fixture, directory.resolve("track${index + 1}.flac")),
                 title = "Track ${index + 1}",
                 artist = "Test Artist",
                 album = "Test Album",
@@ -57,7 +61,7 @@ class PlaylistUiRenderTest {
         fabY: Float?,
     ): Path {
         val songs = tracks()
-        val player = MpvPlayer(audioDriver = "null")
+        val player = FakePlayer()
         val output = Files.createTempDirectory("auxio-playlists").resolve("$name.png")
         try {
             val scene =
@@ -100,11 +104,6 @@ class PlaylistUiRenderTest {
 
     @Test
     fun `renders the empty playlists tab`() {
-        assumeTrue(
-            runCatching { Mpv.load() }.isSuccess,
-            "libmpv is not installed, so the player cannot be constructed",
-        )
-
         assertTrue(
             Files.size(render(emptyList(), "playlists-empty", playlistTab = true, fabY = null)) >
                 500
@@ -113,16 +112,11 @@ class PlaylistUiRenderTest {
 
     @Test
     fun `renders the playlist actions menu`() {
-        assumeTrue(
-            runCatching { Mpv.load() }.isSuccess,
-            "libmpv is not installed, so the player cannot be constructed",
-        )
-
         val songs = tracks()
         assertTrue(
             Files.size(
                 render(
-                    listOf(Playlist("Mix", songs)),
+                    listOf(Playlist("Mix", songs, Path.of("Mix.m3u"))),
                     "playlists-menu",
                     playlistTab = true,
                     fabY = 566f,
@@ -131,13 +125,139 @@ class PlaylistUiRenderTest {
         )
     }
 
+    @OptIn(androidx.compose.ui.InternalComposeUiApi::class)
+    @Test
+    fun `renders an empty playlist and its add songs dialog`() {
+        val songs = tracks()
+        val root = Files.createTempDirectory("auxio-playlist-root")
+        val playlistFile = Files.writeString(root.resolve("Empty.m3u"), "#EXTM3U\n")
+        val playlist = Playlist("Empty", emptyList(), playlistFile)
+        val player = FakePlayer()
+        val output = Files.createTempDirectory("auxio-playlist-add")
+        try {
+            val scene =
+                ImageComposeScene(width = 1100, height = 720) {
+                    AuxioApp(
+                        player = player,
+                        library = Library.build(songs, playlists = listOf(playlist)),
+                        roots = listOf(root),
+                        initialSeparators = ";",
+                    )
+                }
+            try {
+                fun click(x: Float, y: Float) {
+                    scene.sendPointerEvent(PointerEventType.Press, Offset(x, y))
+                    scene.sendPointerEvent(PointerEventType.Release, Offset(x, y))
+                    scene.render()
+                }
+
+                fun shot(name: String) {
+                    scene.render()
+                    val image = scene.render()
+                    val encoded = requireNotNull(image.encodeToData(EncodedImageFormat.PNG))
+                    Files.write(output.resolve("$name.png"), encoded.bytes)
+                }
+
+                scene.render()
+                click(990f, 122f)
+                click(300f, 170f)
+                shot("playlist-empty")
+
+                // The empty page's Add songs button, below the centred message.
+                click(550f, 500f)
+                // The dialog fades in; give it time to reach full opacity before the shot.
+                repeat(10) {
+                    Thread.sleep(50)
+                    scene.render()
+                }
+                shot("playlist-add-dialog")
+
+                // Escape closes the picker without changing anything.
+                scene.sendKeyEvent(KeyEvent(key = Key.Escape, type = KeyEventType.KeyDown))
+                repeat(6) { scene.render() }
+                shot("playlist-escape")
+                val escaped =
+                    javax.imageio.ImageIO.read(output.resolve("playlist-escape.png").toFile())
+                val pixel = java.awt.Color(escaped.getRGB(300, 300))
+                assertTrue(
+                    pixel.red < 40 && pixel.green < 40,
+                    "the picker stayed open after Escape (${pixel.red}, ${pixel.green}, ${pixel.blue})",
+                )
+
+                // Open it again and pick the first song, so the shot shows a chosen state.
+                click(550f, 500f)
+                repeat(10) {
+                    Thread.sleep(50)
+                    scene.render()
+                }
+                click(400f, 270f)
+                // The checkbox ticks over a short animation, so let it finish.
+                repeat(6) {
+                    Thread.sleep(50)
+                    scene.render()
+                }
+                shot("playlist-add-selected")
+
+                // Add the song; this writes the playlist and reloads it.
+                click(775f, 500f)
+                repeat(20) {
+                    Thread.sleep(50)
+                    scene.render()
+                }
+                shot("playlist-added")
+
+                assertTrue(
+                    Files.readString(playlistFile)
+                        .contains(songs.first().path.toAbsolutePath().toString()),
+                    "the song was not written to the playlist",
+                )
+            } finally {
+                scene.close()
+            }
+        } finally {
+            player.close()
+        }
+
+        println("PLAYLIST_ADD $output")
+    }
+
+    @Test
+    fun `renders the add songs picker with a choice`() {
+        val songs = tracks()
+        val scheme = androidx.compose.material3.darkColorScheme()
+        val output = Files.createTempDirectory("auxio-add-picker").resolve("picker-selected.png")
+        val scene =
+            ImageComposeScene(width = 1100, height = 720) {
+                androidx.compose.material3.MaterialTheme(colorScheme = scheme) {
+                    androidx.compose.material3.Surface(
+                        modifier = androidx.compose.ui.Modifier.fillMaxSize(),
+                        color = scheme.background,
+                    ) {
+                        AddSongsDialog(
+                            songs = songs,
+                            selected = setOf(songs.first().id),
+                            scheme = scheme,
+                            onToggle = { _, _ -> },
+                            onAdd = {},
+                            onDismiss = {},
+                        )
+                    }
+                }
+            }
+        try {
+            scene.render()
+            val image = scene.render()
+            val encoded = requireNotNull(image.encodeToData(EncodedImageFormat.PNG))
+            Files.write(output, encoded.bytes)
+        } finally {
+            scene.close()
+        }
+
+        println("ADD_PICKER $output")
+    }
+
     @Test
     fun `renders the corner shuffle`() {
-        assumeTrue(
-            runCatching { Mpv.load() }.isSuccess,
-            "libmpv is not installed, so the player cannot be constructed",
-        )
-
         assertTrue(
             Files.size(render(emptyList(), "shuffle", playlistTab = false, fabY = 566f)) > 500
         )

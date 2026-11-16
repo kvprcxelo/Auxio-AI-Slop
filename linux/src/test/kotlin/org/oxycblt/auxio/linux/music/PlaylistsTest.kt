@@ -76,6 +76,46 @@ class PlaylistsTest {
     }
 
     @Test
+    fun `adds songs to a playlist and skips the ones it already has`() {
+        val directory = Files.createTempDirectory("auxio-m3u-add")
+        val first = Files.writeString(directory.resolve("a.mp3"), "")
+        val second = Files.writeString(directory.resolve("b.mp3"), "")
+        val file = Playlists.create("Mix", directory)!!
+        val playlist = Playlist("Mix", emptyList(), file)
+        val tracks = listOf(Track(first, "A"), Track(second, "B"))
+
+        assertEquals(2, Playlists.addTracks(playlist, tracks))
+        assertEquals(0, Playlists.addTracks(playlist, tracks), "the songs are already listed")
+
+        val loaded = Playlists.load(listOf(directory), tracks, directory).single()
+        assertEquals(listOf("A", "B"), loaded.tracks.map { it.title })
+    }
+
+    @Test
+    fun `removes a song, keeps the others, and keeps an emptied playlist listed`() {
+        val directory = Files.createTempDirectory("auxio-m3u-remove")
+        val first = Files.writeString(directory.resolve("a.mp3"), "")
+        val second = Files.writeString(directory.resolve("b.mp3"), "")
+        val file = Playlists.create("Mix", directory)!!
+        val playlist = Playlist("Mix", emptyList(), file)
+        val tracks = listOf(Track(first, "A"), Track(second, "B"))
+        Playlists.addTracks(playlist, tracks)
+
+        assertEquals(1, Playlists.removeTrack(playlist, tracks.first()))
+        assertEquals(0, Playlists.removeTrack(playlist, tracks.first()))
+        assertEquals(
+            listOf("B"),
+            Playlists.load(listOf(directory), tracks, directory).single().tracks.map { it.title },
+        )
+
+        assertEquals(1, Playlists.removeTrack(playlist, tracks.last()))
+        assertTrue(
+            Playlists.load(listOf(directory), tracks, directory).single().tracks.isEmpty(),
+            "an emptied playlist in the managed folder stays listed",
+        )
+    }
+
+    @Test
     fun `imports a playlist with absolute entries and keeps both copies`() {
         val source = Files.createTempDirectory("auxio-m3u-import")
         val song = Files.writeString(source.resolve("a.mp3"), "")

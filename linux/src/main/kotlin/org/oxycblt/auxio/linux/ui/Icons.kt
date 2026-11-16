@@ -96,6 +96,8 @@ internal object AuxioIcons {
 
     val Plus: ImageVector by lazy { icon("Plus", "M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z") }
 
+    val Remove: ImageVector by lazy { icon("Remove", "M19 13H5v-2h14v2z") }
+
     val Playlist: ImageVector by lazy {
         icon("Playlist", "M4 6h12v2H4zM4 10h12v2H4zM4 14h8v2H4zM16 13v8l6-4z")
     }

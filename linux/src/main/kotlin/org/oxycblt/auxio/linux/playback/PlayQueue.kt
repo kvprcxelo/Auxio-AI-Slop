@@ -37,7 +37,7 @@ enum class LoopMode {
  * [advanceIfFinished] is polled by the UI and only fires after playback has actually started, so
  * the gap between `loadfile` and the demuxer opening is not mistaken for the end.
  */
-class PlayQueue(private val player: MpvPlayer, private val random: Random = Random.Default) {
+class PlayQueue(private val player: Player, private val random: Random = Random.Default) {
     private var tracks: List<Track> = emptyList()
     private var order: List<Int> = emptyList()
     private var cursor = -1

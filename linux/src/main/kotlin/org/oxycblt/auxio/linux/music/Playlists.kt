@@ -33,7 +33,7 @@ import org.oxycblt.auxio.linux.Storage
  * people already have next to their music, which needs no schema and keeps them editable outside
  * the app.
  */
-data class Playlist(val name: String, val tracks: List<Track>)
+data class Playlist(val name: String, val tracks: List<Track>, val path: Path)
 
 object Playlists {
     private val EXTENSIONS = setOf("m3u", "m3u8")
@@ -129,6 +129,79 @@ object Playlists {
         }
     }
 
+    /**
+     * Appends [tracks] to [playlist]'s file, skipping entries it already has, and returns how many
+     * were added. A negative result means the file could not be written.
+     */
+    fun addTracks(playlist: Playlist, tracks: List<Track>): Int =
+        runCatching {
+                val file = playlist.path
+                val existing = entries(file)
+                val additions =
+                    tracks
+                        .map { it.path.toAbsolutePath().normalize() }
+                        .distinct()
+                        .filter { it !in existing }
+                if (additions.isEmpty()) return 0
+
+                val current = runCatching { Files.readString(file) }.getOrDefault("")
+                val text = buildString {
+                    append(current)
+                    if (isNotEmpty() && !endsWith('\n')) append('\n')
+                    if (isEmpty()) append("#EXTM3U\n")
+                    additions.forEach { append(it).append('\n') }
+                }
+                Files.writeString(file, text)
+                additions.size
+            }
+            .getOrDefault(-1)
+
+    /**
+     * Removes every line pointing at [track] from [playlist]'s file, keeping its other entries and
+     * comments. Returns how many lines were removed, or a negative number if the file could not be
+     * written.
+     */
+    fun removeTrack(playlist: Playlist, track: Track): Int =
+        runCatching {
+                val file = playlist.path
+                val target = track.path.toAbsolutePath().normalize()
+                val kept = mutableListOf<String>()
+                var removed = 0
+                for (line in Files.readAllLines(file)) {
+                    if (entryOf(file, line.trim()) == target) {
+                        removed++
+                    } else {
+                        kept.add(line)
+                    }
+                }
+                if (removed == 0) return 0
+
+                Files.writeString(
+                    file,
+                    kept.joinToString("\n", postfix = if (kept.isEmpty()) "" else "\n"),
+                )
+                removed
+            }
+            .getOrDefault(-1)
+
+    /** The file's entries as absolute paths, for deciding what a playlist already has. */
+    private fun entries(file: Path): Set<Path> =
+        runCatching { Files.readAllLines(file) }
+            .getOrDefault(emptyList())
+            .map { it.trim() }
+            .mapNotNull { entryOf(file, it) }
+            .toSet()
+
+    /**
+     * Resolves one entry line against the playlist's folder; comments and blanks are not entries.
+     */
+    private fun entryOf(file: Path, line: String): Path? {
+        if (line.isEmpty() || line.startsWith("#")) return null
+
+        val path = runCatching { Path.of(line) }.getOrNull() ?: return null
+        return (if (path.isAbsolute) path else file.parent?.resolve(path) ?: path).normalize()
+    }
+
     private fun uniqueFile(directory: Path, base: String, extension: String): Path {
         var candidate = directory.resolve("$base.$extension")
         var index = 2
@@ -163,6 +236,6 @@ object Playlists {
 
         if (tracks.isEmpty() && !keepEmpty) return null
 
-        return Playlist(file.nameWithoutExtension, tracks)
+        return Playlist(file.nameWithoutExtension, tracks, file)
     }
 }

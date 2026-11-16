@@ -28,7 +28,7 @@ import java.nio.file.Path
  * State is polled rather than observed through mpv's event loop: a music player needs time position
  * at a handful of hertz anyway, and polling keeps the binding free of the event struct.
  */
-class MpvPlayer(audioDriver: String? = null) : AutoCloseable {
+class MpvPlayer(audioDriver: String? = null) : Player {
     private val api = Mpv.load()
 
     private val ctx: Pointer = run {
@@ -66,7 +66,7 @@ class MpvPlayer(audioDriver: String? = null) : AutoCloseable {
         )
     }
 
-    fun load(path: Path, autoplay: Boolean = true) {
+    override fun load(path: Path, autoplay: Boolean) {
         val escaped = path.toAbsolutePath().toString().replace("\\", "\\\\").replace("\"", "\\\"")
         val command = "loadfile \"$escaped\" ${if (autoplay) "replace" else "replace"}"
         DebugLog.write(command)
@@ -77,27 +77,27 @@ class MpvPlayer(audioDriver: String? = null) : AutoCloseable {
         )
     }
 
-    fun play() = setProperty("pause", "no")
+    override fun play() = setProperty("pause", "no")
 
-    fun pause() = setProperty("pause", "yes")
+    override fun pause() = setProperty("pause", "yes")
 
-    fun togglePause() = command("cycle pause")
+    override fun togglePause() = command("cycle pause")
 
-    fun seekTo(seconds: Double) = command("seek ${seconds.coerceAtLeast(0.0)} absolute")
+    override fun seekTo(seconds: Double) = command("seek ${seconds.coerceAtLeast(0.0)} absolute")
 
-    fun seekBy(delta: Double) = command("seek $delta relative")
+    override fun seekBy(delta: Double) = command("seek $delta relative")
 
-    fun stop() = command("stop")
+    override fun stop() = command("stop")
 
-    fun volume(value: Double) = setDouble("volume", value.coerceIn(0.0, 100.0))
+    override fun volume(value: Double) = setDouble("volume", value.coerceIn(0.0, 100.0))
 
-    fun timePosition(): Double = getDouble("time-pos") ?: 0.0
+    override fun timePosition(): Double = getDouble("time-pos") ?: 0.0
 
-    fun duration(): Double = getDouble("duration") ?: 0.0
+    override fun duration(): Double = getDouble("duration") ?: 0.0
 
-    fun isPaused(): Boolean = getFlag("pause")
+    override fun isPaused(): Boolean = getFlag("pause")
 
-    fun isIdle(): Boolean = getFlag("idle-active")
+    override fun isIdle(): Boolean = getFlag("idle-active")
 
     /** The configured `ao` driver list, empty when mpv autoselects. */
     fun audioDrivers(): String? = getString("ao")

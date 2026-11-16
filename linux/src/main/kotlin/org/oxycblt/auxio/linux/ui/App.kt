@@ -21,6 +21,7 @@ package org.oxycblt.auxio.linux.ui
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -32,6 +33,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -45,6 +47,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.FilterChip
@@ -56,7 +59,6 @@ import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Slider
@@ -76,9 +78,16 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.toComposeImageBitmap
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -111,8 +120,8 @@ import org.oxycblt.auxio.linux.music.Playlists
 import org.oxycblt.auxio.linux.music.Track
 import org.oxycblt.auxio.linux.playback.DebugLog
 import org.oxycblt.auxio.linux.playback.LoopMode
-import org.oxycblt.auxio.linux.playback.MpvPlayer
 import org.oxycblt.auxio.linux.playback.PlayQueue
+import org.oxycblt.auxio.linux.playback.Player
 import org.oxycblt.auxio.linux.theme.Brightness
 import org.oxycblt.auxio.linux.theme.Desktop
 import org.oxycblt.auxio.linux.theme.Matugen
@@ -136,7 +145,7 @@ private data class Message(val text: String, val error: Boolean = false)
 
 @Composable
 fun AuxioApp(
-    player: MpvPlayer,
+    player: Player,
     library: MusicLibrary,
     roots: List<Path>,
     initialSeparators: String = Settings.DEFAULT_SEPARATORS,
@@ -169,6 +178,8 @@ fun AuxioApp(
     var creatingPlaylist by remember { mutableStateOf(false) }
     var newPlaylistName by remember { mutableStateOf("") }
     var playlistMenu by remember { mutableStateOf(false) }
+    var addingSongsTo by remember { mutableStateOf<Playlist?>(null) }
+    var selectedSongs by remember { mutableStateOf<Set<String>>(emptySet()) }
 
     val desktopAppearance = remember { Desktop.appearance() }
     val desktopWallpaper = remember { Desktop.wallpaper() }
@@ -263,7 +274,7 @@ fun AuxioApp(
         if (file == null) {
             notify("Could not create that playlist", error = true)
         } else {
-            notify("Created ${'$'}{file.fileName}")
+            notify("Created ${file.fileName}")
             reloadPlaylists()
         }
     }
@@ -273,10 +284,50 @@ fun AuxioApp(
         val source = choosePlaylistFile() ?: return
         val imported = Playlists.importFrom(source)
         if (imported == null) {
-            notify("Could not import ${'$'}{source.fileName}", error = true)
+            notify("Could not import ${source.fileName}", error = true)
         } else {
-            notify("Imported ${'$'}{imported.fileName}")
+            notify("Imported ${imported.fileName}")
             reloadPlaylists()
+        }
+    }
+
+    /** Appends the picked songs to the playlist being edited and reloads the library's lists. */
+    fun addSongs() {
+        val target = addingSongsTo ?: return
+        val chosen = songs.filter { it.id in selectedSongs }
+        addingSongsTo = null
+        selectedSongs = emptySet()
+        if (chosen.isEmpty()) return
+
+        scope.launch {
+            val added = withContext(Dispatchers.IO) { Playlists.addTracks(target, chosen) }
+            val found = withContext(Dispatchers.IO) { Playlists.load(roots, songs) }
+            playlists = found
+            if (openPlaylist?.path == target.path) {
+                openPlaylist = found.firstOrNull { it.path == target.path }
+            }
+            when {
+                added < 0 -> notify("Could not add songs to ${target.name}", error = true)
+                added == 0 -> notify("Those songs are already in ${target.name}")
+                else -> notify("Added ${count(added, "song")} to ${target.name}")
+            }
+        }
+    }
+
+    /** Rewrites the playlist without [track], then refreshes both the list and the open page. */
+    fun removeTrack(playlist: Playlist, track: Track) {
+        scope.launch {
+            val removed = withContext(Dispatchers.IO) { Playlists.removeTrack(playlist, track) }
+            val found = withContext(Dispatchers.IO) { Playlists.load(roots, songs) }
+            playlists = found
+            if (openPlaylist?.path == playlist.path) {
+                openPlaylist = found.firstOrNull { it.path == playlist.path }
+            }
+            when {
+                removed < 0 -> notify("Could not update ${playlist.name}", error = true)
+                removed == 0 -> notify("${track.title} is not in ${playlist.name}")
+                else -> notify("Removed ${count(removed, "song")} from ${playlist.name}")
+            }
         }
     }
 
@@ -369,16 +420,9 @@ fun AuxioApp(
         }
 
     MaterialTheme(colorScheme = scheme) {
-        Surface(modifier = Modifier.fillMaxSize()) {
-            Column(modifier = Modifier.fillMaxSize()) {
-                // Surface is the near-neutral Material role, which reads as grey whatever seed
-                // is chosen. The toolbar uses the seed's container colour instead, so changing
-                // the scheme is visible there too.
-                Surface(
-                    modifier = Modifier.fillMaxWidth(),
-                    color = MaterialTheme.colorScheme.primaryContainer,
-                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                ) {
+        Box(modifier = Modifier.fillMaxSize()) {
+            Surface(modifier = Modifier.fillMaxSize()) {
+                Column(modifier = Modifier.fillMaxSize()) {
                     Row(
                         modifier = Modifier.fillMaxWidth().padding(16.dp),
                         verticalAlignment = Alignment.CenterVertically,
@@ -390,25 +434,6 @@ fun AuxioApp(
                             onValueChange = { query = it },
                             singleLine = true,
                             label = { Text("Search") },
-                            colors =
-                                OutlinedTextFieldDefaults.colors(
-                                    focusedTextColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                                    unfocusedTextColor =
-                                        MaterialTheme.colorScheme.onPrimaryContainer,
-                                    focusedBorderColor =
-                                        MaterialTheme.colorScheme.onPrimaryContainer,
-                                    unfocusedBorderColor =
-                                        MaterialTheme.colorScheme.onPrimaryContainer.copy(
-                                            alpha = 0.6f
-                                        ),
-                                    focusedLabelColor =
-                                        MaterialTheme.colorScheme.onPrimaryContainer,
-                                    unfocusedLabelColor =
-                                        MaterialTheme.colorScheme.onPrimaryContainer.copy(
-                                            alpha = 0.8f
-                                        ),
-                                    cursorColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                                ),
                             modifier = Modifier.width(280.dp),
                         )
                         Spacer(modifier = Modifier.weight(1f))
@@ -420,302 +445,330 @@ fun AuxioApp(
                                     " · " +
                                     count(currentLibrary.artists.size, "artist"),
                             style = MaterialTheme.typography.labelMedium,
-                            color =
-                                MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.75f),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                         IconButton(onClick = { showSettings = !showSettings }) {
-                            Icon(
-                                imageVector = AuxioIcons.Settings,
-                                contentDescription = "Settings",
-                            )
+                            Icon(imageVector = AuxioIcons.Settings, contentDescription = "Settings")
                         }
                     }
-                }
 
-                message?.let { shown ->
-                    Text(
-                        text = shown.text,
-                        style = MaterialTheme.typography.bodySmall,
-                        color =
-                            if (shown.error) MaterialTheme.colorScheme.error
-                            else MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-                    )
-                }
-
-                // The content takes the space left over by the transport bar. Without the weight
-                // its fillMaxSize() would consume the whole column and push the bar out of view.
-                val contentModifier = Modifier.fillMaxWidth().weight(1f)
-
-                when {
-                    showSettings ->
-                        SettingsPage(
-                            separators = separators,
-                            dateFormat = dateFormat,
-                            ignorePunctuation = ignorePunctuation,
-                            collageSeed = collageSeed,
-                            scanning = scanning,
-                            songCount = songs.size,
-                            onSeparators = {
-                                separators = it
-                                Settings.separators(it)
-                            },
-                            onDateFormat = {
-                                dateFormat = it
-                                Settings.dateFormat(it)
-                            },
-                            onIgnorePunctuation = {
-                                ignorePunctuation = it
-                                Settings.ignoresLeadingPunctuation(it)
-                            },
-                            onCollageSeed = {
-                                collageSeed = it
-                                Settings.collageSeed(it)
-                            },
-                            cacheLimitMb = cacheLimitMb,
-                            onCacheLimitMb = {
-                                cacheLimitMb = it
-                                Settings.cacheLimitMb(it)
-                                // Dropping the limit should free the space straight away.
-                                scope.launch(Dispatchers.IO) { ArtworkStore.enforceLimit() }
-                            },
-                            onReload = { reload(full = false) },
-                            onFullReload = { reload(full = true) },
-                            theme = theme,
-                            desktopAccent = desktopAppearance.accent,
-                            desktopWallpaper = desktopWallpaper,
-                            matugenAvailable = matugenAvailable,
-                            onTheme = {
-                                theme = it
-                                Settings.theme(it)
-                            },
-                            onBack = { showSettings = false },
-                            modifier = contentModifier,
+                    message?.let { shown ->
+                        Text(
+                            text = shown.text,
+                            style = MaterialTheme.typography.bodySmall,
+                            color =
+                                if (shown.error) MaterialTheme.colorScheme.error
+                                else MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
                         )
-                    currentLibrary.songs.isEmpty() ->
-                        Box(modifier = contentModifier, contentAlignment = Alignment.Center) {
-                            Text(
-                                text = "No music found in ${roots.joinToString()}",
-                                style = MaterialTheme.typography.bodyLarge,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    }
+
+                    // The content takes the space left over by the transport bar. Without the
+                    // weight
+                    // its fillMaxSize() would consume the whole column and push the bar out of
+                    // view.
+                    val contentModifier = Modifier.fillMaxWidth().weight(1f)
+
+                    when {
+                        showSettings ->
+                            SettingsPage(
+                                separators = separators,
+                                dateFormat = dateFormat,
+                                ignorePunctuation = ignorePunctuation,
+                                collageSeed = collageSeed,
+                                scanning = scanning,
+                                songCount = songs.size,
+                                onSeparators = {
+                                    separators = it
+                                    Settings.separators(it)
+                                },
+                                onDateFormat = {
+                                    dateFormat = it
+                                    Settings.dateFormat(it)
+                                },
+                                onIgnorePunctuation = {
+                                    ignorePunctuation = it
+                                    Settings.ignoresLeadingPunctuation(it)
+                                },
+                                onCollageSeed = {
+                                    collageSeed = it
+                                    Settings.collageSeed(it)
+                                },
+                                cacheLimitMb = cacheLimitMb,
+                                onCacheLimitMb = {
+                                    cacheLimitMb = it
+                                    Settings.cacheLimitMb(it)
+                                    // Dropping the limit should free the space straight away.
+                                    scope.launch(Dispatchers.IO) { ArtworkStore.enforceLimit() }
+                                },
+                                onReload = { reload(full = false) },
+                                onFullReload = { reload(full = true) },
+                                theme = theme,
+                                desktopAccent = desktopAppearance.accent,
+                                desktopWallpaper = desktopWallpaper,
+                                matugenAvailable = matugenAvailable,
+                                onTheme = {
+                                    theme = it
+                                    Settings.theme(it)
+                                },
+                                onBack = { showSettings = false },
+                                modifier = contentModifier,
                             )
-                        }
-                    else -> {
-                        val album = openAlbum
-                        val artist = openArtist
-                        val genre = openGenre
-                        val playlist = openPlaylist
-                        when {
-                            album != null ->
-                                AlbumDetail(
-                                    album = album,
-                                    current = current,
-                                    dateFormat = dateFormat,
-                                    onBack = { openAlbum = null },
-                                    onPlay = { index -> play(album.tracks, index) },
-                                    onShuffle = { shufflePlay(album.tracks) },
-                                    modifier = contentModifier,
+                        currentLibrary.songs.isEmpty() ->
+                            Box(modifier = contentModifier, contentAlignment = Alignment.Center) {
+                                Text(
+                                    text = "No music found in ${roots.joinToString()}",
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
-                            artist != null ->
-                                ArtistDetail(
-                                    artist = artist,
-                                    current = current,
-                                    collageSeed = collageSeed,
-                                    dateFormat = dateFormat,
-                                    onBack = { openArtist = null },
-                                    onOpenAlbum = { openAlbum = it },
-                                    onPlay = { index -> play(artist.tracks, index) },
-                                    onShuffle = { shufflePlay(artist.tracks) },
-                                    modifier = contentModifier,
-                                )
-                            genre != null ->
-                                TrackCollectionDetail(
-                                    title = genre.name,
-                                    subtitle = count(genre.tracks.size, "song"),
-                                    tracks = genre.tracks,
-                                    current = current,
-                                    onBack = { openGenre = null },
-                                    onPlay = { index -> play(genre.tracks, index) },
-                                    onShuffle = { shufflePlay(genre.tracks) },
-                                    modifier = contentModifier,
-                                )
-                            playlist != null ->
-                                TrackCollectionDetail(
-                                    title = playlist.name,
-                                    subtitle = count(playlist.tracks.size, "song"),
-                                    tracks = playlist.tracks,
-                                    current = current,
-                                    onBack = { openPlaylist = null },
-                                    onPlay = { index -> play(playlist.tracks, index) },
-                                    onShuffle = { shufflePlay(playlist.tracks) },
-                                    modifier = contentModifier,
-                                )
-                            else -> {
-                                Column(modifier = contentModifier) {
-                                    PrimaryTabRow(selectedTabIndex = section.ordinal) {
-                                        Section.entries.forEach { entry ->
-                                            Tab(
-                                                selected = section == entry,
-                                                onClick = { section = entry },
-                                                text = { Text(entry.label) },
-                                            )
-                                        }
-                                    }
-
-                                    Box(modifier = Modifier.fillMaxSize()) {
-                                        when (section) {
-                                            Section.Songs ->
-                                                SongList(
-                                                    tracks = visibleSongs,
-                                                    current = current,
-                                                    onPlay = { index -> play(visibleSongs, index) },
-                                                    modifier = Modifier.fillMaxSize(),
+                            }
+                        else -> {
+                            val album = openAlbum
+                            val artist = openArtist
+                            val genre = openGenre
+                            val playlist = openPlaylist
+                            when {
+                                album != null ->
+                                    AlbumDetail(
+                                        album = album,
+                                        current = current,
+                                        dateFormat = dateFormat,
+                                        onBack = { openAlbum = null },
+                                        onPlay = { index -> play(album.tracks, index) },
+                                        onShuffle = { shufflePlay(album.tracks) },
+                                        modifier = contentModifier,
+                                    )
+                                artist != null ->
+                                    ArtistDetail(
+                                        artist = artist,
+                                        current = current,
+                                        collageSeed = collageSeed,
+                                        dateFormat = dateFormat,
+                                        onBack = { openArtist = null },
+                                        onOpenAlbum = { openAlbum = it },
+                                        onPlay = { index -> play(artist.tracks, index) },
+                                        onShuffle = { shufflePlay(artist.tracks) },
+                                        modifier = contentModifier,
+                                    )
+                                genre != null ->
+                                    TrackCollectionDetail(
+                                        title = genre.name,
+                                        subtitle = count(genre.tracks.size, "song"),
+                                        tracks = genre.tracks,
+                                        current = current,
+                                        onBack = { openGenre = null },
+                                        onPlay = { index -> play(genre.tracks, index) },
+                                        onShuffle = { shufflePlay(genre.tracks) },
+                                        modifier = contentModifier,
+                                    )
+                                playlist != null ->
+                                    TrackCollectionDetail(
+                                        title = playlist.name,
+                                        subtitle = count(playlist.tracks.size, "song"),
+                                        tracks = playlist.tracks,
+                                        onAddSongs = {
+                                            addingSongsTo = playlist
+                                            selectedSongs = emptySet()
+                                        },
+                                        onRemove = { track -> removeTrack(playlist, track) },
+                                        current = current,
+                                        onBack = { openPlaylist = null },
+                                        onPlay = { index -> play(playlist.tracks, index) },
+                                        onShuffle = { shufflePlay(playlist.tracks) },
+                                        modifier = contentModifier,
+                                    )
+                                else -> {
+                                    Column(modifier = contentModifier) {
+                                        PrimaryTabRow(selectedTabIndex = section.ordinal) {
+                                            Section.entries.forEach { entry ->
+                                                Tab(
+                                                    selected = section == entry,
+                                                    onClick = { section = entry },
+                                                    text = { Text(entry.label) },
                                                 )
-                                            Section.Albums ->
-                                                AlbumList(
-                                                    albums = visibleAlbums,
-                                                    dateFormat = dateFormat,
-                                                    onOpen = { openAlbum = it },
-                                                    modifier = Modifier.fillMaxSize(),
-                                                )
-                                            Section.Artists ->
-                                                ArtistList(
-                                                    artists = visibleArtists,
-                                                    collageSeed = collageSeed,
-                                                    onOpen = { openArtist = it },
-                                                    modifier = Modifier.fillMaxSize(),
-                                                )
-                                            Section.Genres ->
-                                                GenreList(
-                                                    genres = visibleGenres,
-                                                    onOpen = { openGenre = it },
-                                                    modifier = Modifier.fillMaxSize(),
-                                                )
-                                            Section.Playlists ->
-                                                if (visiblePlaylists.isEmpty()) {
-                                                    EmptyPlaylists(
-                                                        menuOpen = playlistMenu,
-                                                        onToggleMenu = {
-                                                            playlistMenu = !playlistMenu
-                                                        },
-                                                        onCreate = {
-                                                            playlistMenu = false
-                                                            newPlaylistName = ""
-                                                            creatingPlaylist = true
-                                                        },
-                                                        onImport = ::importPlaylist,
-                                                        modifier = Modifier.fillMaxSize(),
-                                                    )
-                                                } else {
-                                                    PlaylistList(
-                                                        playlists = visiblePlaylists,
-                                                        onOpen = { openPlaylist = it },
-                                                        modifier = Modifier.fillMaxSize(),
-                                                    )
-                                                }
+                                            }
                                         }
 
-                                        when {
-                                            section == Section.Playlists &&
-                                                visiblePlaylists.isNotEmpty() ->
-                                                Column(
-                                                    modifier =
-                                                        Modifier.align(Alignment.BottomEnd)
-                                                            .padding(20.dp),
-                                                    horizontalAlignment = Alignment.End,
-                                                ) {
-                                                    if (playlistMenu) {
-                                                        PlaylistActionsMenu(
+                                        Box(modifier = Modifier.fillMaxSize()) {
+                                            when (section) {
+                                                Section.Songs ->
+                                                    SongList(
+                                                        tracks = visibleSongs,
+                                                        current = current,
+                                                        onPlay = { index ->
+                                                            play(visibleSongs, index)
+                                                        },
+                                                        modifier = Modifier.fillMaxSize(),
+                                                    )
+                                                Section.Albums ->
+                                                    AlbumList(
+                                                        albums = visibleAlbums,
+                                                        dateFormat = dateFormat,
+                                                        onOpen = { openAlbum = it },
+                                                        modifier = Modifier.fillMaxSize(),
+                                                    )
+                                                Section.Artists ->
+                                                    ArtistList(
+                                                        artists = visibleArtists,
+                                                        collageSeed = collageSeed,
+                                                        onOpen = { openArtist = it },
+                                                        modifier = Modifier.fillMaxSize(),
+                                                    )
+                                                Section.Genres ->
+                                                    GenreList(
+                                                        genres = visibleGenres,
+                                                        onOpen = { openGenre = it },
+                                                        modifier = Modifier.fillMaxSize(),
+                                                    )
+                                                Section.Playlists ->
+                                                    if (visiblePlaylists.isEmpty()) {
+                                                        EmptyPlaylists(
+                                                            menuOpen = playlistMenu,
+                                                            onToggleMenu = {
+                                                                playlistMenu = !playlistMenu
+                                                            },
                                                             onCreate = {
                                                                 playlistMenu = false
                                                                 newPlaylistName = ""
                                                                 creatingPlaylist = true
                                                             },
                                                             onImport = ::importPlaylist,
+                                                            modifier = Modifier.fillMaxSize(),
                                                         )
-                                                        Spacer(modifier = Modifier.height(12.dp))
+                                                    } else {
+                                                        PlaylistList(
+                                                            playlists = visiblePlaylists,
+                                                            onOpen = { openPlaylist = it },
+                                                            modifier = Modifier.fillMaxSize(),
+                                                        )
                                                     }
+                                            }
+
+                                            when {
+                                                section == Section.Playlists &&
+                                                    visiblePlaylists.isNotEmpty() ->
+                                                    Column(
+                                                        modifier =
+                                                            Modifier.align(Alignment.BottomEnd)
+                                                                .padding(20.dp),
+                                                        horizontalAlignment = Alignment.End,
+                                                    ) {
+                                                        if (playlistMenu) {
+                                                            PlaylistActionsMenu(
+                                                                onCreate = {
+                                                                    playlistMenu = false
+                                                                    newPlaylistName = ""
+                                                                    creatingPlaylist = true
+                                                                },
+                                                                onImport = ::importPlaylist,
+                                                            )
+                                                            Spacer(
+                                                                modifier = Modifier.height(12.dp)
+                                                            )
+                                                        }
+                                                        FloatingActionButton(
+                                                            onClick = {
+                                                                playlistMenu = !playlistMenu
+                                                            },
+                                                            shape = RoundedCornerShape(20.dp),
+                                                            containerColor =
+                                                                MaterialTheme.colorScheme
+                                                                    .primaryContainer,
+                                                        ) {
+                                                            Icon(
+                                                                imageVector = AuxioIcons.Plus,
+                                                                contentDescription =
+                                                                    "Playlist actions",
+                                                            )
+                                                        }
+                                                    }
+                                                section != Section.Playlists &&
+                                                    sectionTracks(
+                                                            section,
+                                                            visibleSongs,
+                                                            visibleAlbums,
+                                                            visibleArtists,
+                                                            visibleGenres,
+                                                            visiblePlaylists,
+                                                        )
+                                                        .isNotEmpty() ->
                                                     FloatingActionButton(
-                                                        onClick = { playlistMenu = !playlistMenu },
+                                                        onClick = {
+                                                            shufflePlay(
+                                                                sectionTracks(
+                                                                    section,
+                                                                    visibleSongs,
+                                                                    visibleAlbums,
+                                                                    visibleArtists,
+                                                                    visibleGenres,
+                                                                    visiblePlaylists,
+                                                                )
+                                                            )
+                                                        },
+                                                        modifier =
+                                                            Modifier.align(Alignment.BottomEnd)
+                                                                .padding(20.dp),
                                                         shape = RoundedCornerShape(20.dp),
                                                         containerColor =
                                                             MaterialTheme.colorScheme
                                                                 .primaryContainer,
                                                     ) {
                                                         Icon(
-                                                            imageVector = AuxioIcons.Plus,
-                                                            contentDescription = "Playlist actions",
+                                                            imageVector = AuxioIcons.Shuffle,
+                                                            contentDescription =
+                                                                "Shuffle ${'$'}{section.label.lowercase()}",
                                                         )
                                                     }
-                                                }
-                                            section != Section.Playlists &&
-                                                sectionTracks(
-                                                        section,
-                                                        visibleSongs,
-                                                        visibleAlbums,
-                                                        visibleArtists,
-                                                        visibleGenres,
-                                                        visiblePlaylists,
-                                                    )
-                                                    .isNotEmpty() ->
-                                                FloatingActionButton(
-                                                    onClick = {
-                                                        shufflePlay(
-                                                            sectionTracks(
-                                                                section,
-                                                                visibleSongs,
-                                                                visibleAlbums,
-                                                                visibleArtists,
-                                                                visibleGenres,
-                                                                visiblePlaylists,
-                                                            )
-                                                        )
-                                                    },
-                                                    modifier =
-                                                        Modifier.align(Alignment.BottomEnd)
-                                                            .padding(20.dp),
-                                                    shape = RoundedCornerShape(20.dp),
-                                                    containerColor =
-                                                        MaterialTheme.colorScheme.primaryContainer,
-                                                ) {
-                                                    Icon(
-                                                        imageVector = AuxioIcons.Shuffle,
-                                                        contentDescription =
-                                                            "Shuffle ${'$'}{section.label.lowercase()}",
-                                                    )
-                                                }
+                                            }
                                         }
                                     }
                                 }
                             }
                         }
                     }
-                }
 
-                TransportBar(
-                    current = current,
-                    paused = paused,
-                    position = position,
-                    duration = duration,
-                    volume = volume,
-                    shuffle = shuffle,
-                    loop = loop,
-                    onToggleShuffle = ::toggleShuffle,
-                    onCycleLoop = ::cycleLoop,
-                    onPrevious = { step(forward = false) },
-                    onTogglePause = {
-                        current?.let {
-                            player.togglePause()
-                            paused = player.isPaused()
-                        }
+                    TransportBar(
+                        current = current,
+                        paused = paused,
+                        position = position,
+                        duration = duration,
+                        volume = volume,
+                        shuffle = shuffle,
+                        loop = loop,
+                        onToggleShuffle = ::toggleShuffle,
+                        onCycleLoop = ::cycleLoop,
+                        onPrevious = { step(forward = false) },
+                        onTogglePause = {
+                            current?.let {
+                                player.togglePause()
+                                paused = player.isPaused()
+                            }
+                        },
+                        onNext = { step(forward = true) },
+                        onSeek = { fraction ->
+                            if (duration > 0.0) player.seekTo(duration * fraction)
+                        },
+                        onVolume = {
+                            volume = it
+                            player.volume(it)
+                        },
+                    )
+                }
+            }
+
+            addingSongsTo?.let { target ->
+                AddSongsDialog(
+                    songs = currentLibrary.songs,
+                    selected = selectedSongs,
+                    scheme = scheme,
+                    onToggle = { track, checked ->
+                        selectedSongs =
+                            if (checked) selectedSongs + track.id else selectedSongs - track.id
                     },
-                    onNext = { step(forward = true) },
-                    onSeek = { fraction ->
-                        if (duration > 0.0) player.seekTo(duration * fraction)
-                    },
-                    onVolume = {
-                        volume = it
-                        player.volume(it)
+                    onAdd = ::addSongs,
+                    onDismiss = {
+                        addingSongsTo = null
+                        selectedSongs = emptySet()
                     },
                 )
             }
@@ -834,6 +887,108 @@ private fun NewPlaylistDialog(
             },
             dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
         )
+    }
+}
+
+/** Picks songs from the library and appends them to the playlist being edited. */
+@Composable
+internal fun AddSongsDialog(
+    songs: List<Track>,
+    selected: Set<String>,
+    scheme: ColorScheme,
+    onToggle: (Track, Boolean) -> Unit,
+    onAdd: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    // An in-window modal rather than a platform dialog: the song list is long enough to need the
+    // room, and it keeps the picker inside the window it belongs to.
+    val focusRequester = remember { FocusRequester() }
+    LaunchedEffect(Unit) { focusRequester.requestFocus() }
+    MaterialTheme(colorScheme = scheme) {
+        Box(
+            modifier =
+                Modifier.fillMaxSize()
+                    .focusRequester(focusRequester)
+                    .focusable()
+                    .onPreviewKeyEvent { event ->
+                        if (event.type == KeyEventType.KeyDown && event.key == Key.Escape) {
+                            onDismiss()
+                            true
+                        } else {
+                            false
+                        }
+                    }
+                    .background(Color.Black.copy(alpha = 0.55f))
+                    .clickable(onClick = onDismiss),
+            contentAlignment = Alignment.Center,
+        ) {
+            Surface(
+                modifier = Modifier.width(560.dp).clickable {},
+                shape = RoundedCornerShape(24.dp),
+                color = MaterialTheme.colorScheme.surfaceVariant,
+                contentColor = MaterialTheme.colorScheme.onSurface,
+                tonalElevation = 6.dp,
+                shadowElevation = 12.dp,
+            ) {
+                Column(modifier = Modifier.padding(24.dp)) {
+                    Text("Add songs", style = MaterialTheme.typography.headlineSmall)
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    if (songs.isEmpty()) {
+                        Text("Your library has no songs to add.")
+                    } else {
+                        LazyColumn(modifier = Modifier.heightIn(max = 360.dp)) {
+                            items(songs) { track ->
+                                Row(
+                                    modifier =
+                                        Modifier.fillMaxWidth()
+                                            .clickable {
+                                                onToggle(track, track.id !in selected)
+                                            }
+                                            .padding(vertical = 4.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Checkbox(
+                                        checked = track.id in selected,
+                                        onCheckedChange = { onToggle(track, it) },
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Column {
+                                        Text(
+                                            text = track.title,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                        )
+                                        Text(
+                                            text =
+                                                listOfNotNull(track.artist, track.album)
+                                                    .joinToString(" · "),
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.End,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        TextButton(onClick = onDismiss) { Text("Cancel") }
+                        Spacer(modifier = Modifier.width(8.dp))
+                        TextButton(onClick = onAdd, enabled = selected.isNotEmpty()) {
+                            Text("Add")
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -1776,6 +1931,7 @@ private fun TrackRow(
     playing: Boolean,
     onClick: () -> Unit,
     artwork: ImageBitmap? = null,
+    onRemove: (() -> Unit)? = null,
 ) {
     Row(
         modifier =
@@ -1793,6 +1949,15 @@ private fun TrackRow(
             Spacer(modifier = Modifier.width(12.dp))
         }
         RowContent(title = track.title, subtitle = subtitle)
+        if (onRemove != null) {
+            IconButton(onClick = onRemove) {
+                Icon(
+                    imageVector = AuxioIcons.Remove,
+                    contentDescription = "Remove from playlist",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
     }
 }
 
@@ -1839,7 +2004,10 @@ private fun TransportBar(
 
     Surface(
         modifier = Modifier.fillMaxWidth(),
-        color = MaterialTheme.colorScheme.surfaceContainer,
+        // The neutral variant: surfaces themselves are near-grey and the container roles are not
+        // filled in by the generated schemes, so they would fall back to Material's default tint.
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        contentColor = MaterialTheme.colorScheme.onSurface,
         shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
     ) {
         Column(
@@ -1997,6 +2165,8 @@ private fun TrackCollectionDetail(
     title: String,
     subtitle: String,
     tracks: List<Track>,
+    onAddSongs: (() -> Unit)? = null,
+    onRemove: ((Track) -> Unit)? = null,
     current: Track?,
     onBack: () -> Unit,
     onPlay: (Int) -> Unit,
@@ -2019,6 +2189,7 @@ private fun TrackCollectionDetail(
         ) {
             Button(
                 onClick = { onPlay(0) },
+                enabled = tracks.isNotEmpty(),
                 modifier = Modifier.weight(1f),
                 contentPadding = PaddingValues(vertical = 12.dp),
             ) {
@@ -2028,6 +2199,7 @@ private fun TrackCollectionDetail(
             }
             OutlinedButton(
                 onClick = onShuffle,
+                enabled = tracks.isNotEmpty(),
                 modifier = Modifier.weight(1f),
                 contentPadding = PaddingValues(vertical = 12.dp),
             ) {
@@ -2035,18 +2207,67 @@ private fun TrackCollectionDetail(
                 Spacer(modifier = Modifier.width(8.dp))
                 Text("Shuffle")
             }
+            // While the page is empty the centred button below is the way in, so the row keeps
+            // its two transport actions only.
+            if (onAddSongs != null && tracks.isNotEmpty()) {
+                OutlinedButton(
+                    onClick = onAddSongs,
+                    modifier = Modifier.weight(1f),
+                    contentPadding = PaddingValues(vertical = 12.dp),
+                ) {
+                    Icon(imageVector = AuxioIcons.Plus, contentDescription = null)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Add songs")
+                }
+            }
         }
         Spacer(modifier = Modifier.size(16.dp))
 
-        LazyColumn(modifier = Modifier.fillMaxSize()) {
-            itemsIndexed(tracks) { index, track ->
-                TrackRow(
-                    track = track,
-                    subtitle = listOfNotNull(track.artist, track.album).joinToString(" · "),
-                    playing = current?.id == track.id,
-                    artwork = rememberArtwork(listOf(track)),
-                    onClick = { onPlay(index) },
+        if (tracks.isEmpty()) {
+            Column(
+                modifier = Modifier.fillMaxSize().padding(horizontal = 32.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center,
+            ) {
+                Icon(
+                    imageVector = AuxioIcons.Playlist,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(64.dp),
                 )
+                Spacer(modifier = Modifier.height(12.dp))
+                Text(
+                    text =
+                        if (onAddSongs != null) "This playlist is empty." else "No songs here yet.",
+                    style = MaterialTheme.typography.titleMedium,
+                )
+                if (onAddSongs != null) {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "Add songs to start listening.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Button(onClick = onAddSongs) {
+                        Icon(imageVector = AuxioIcons.Plus, contentDescription = null)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Add songs")
+                    }
+                }
+            }
+        } else {
+            LazyColumn(modifier = Modifier.fillMaxSize()) {
+                itemsIndexed(tracks) { index, track ->
+                    TrackRow(
+                        track = track,
+                        subtitle = listOfNotNull(track.artist, track.album).joinToString(" · "),
+                        playing = current?.id == track.id,
+                        artwork = rememberArtwork(listOf(track)),
+                        onClick = { onPlay(index) },
+                        onRemove = onRemove?.let { remove -> { remove(track) } },
+                    )
+                }
             }
         }
     }

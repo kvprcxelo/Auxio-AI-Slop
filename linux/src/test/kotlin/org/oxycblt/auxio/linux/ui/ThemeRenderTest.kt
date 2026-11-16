@@ -26,11 +26,9 @@ import java.nio.file.Path
 import kotlin.test.Test
 import kotlin.test.assertTrue
 import org.jetbrains.skia.EncodedImageFormat
-import org.junit.jupiter.api.Assumptions.assumeTrue
 import org.oxycblt.auxio.linux.music.Library
 import org.oxycblt.auxio.linux.music.Track
-import org.oxycblt.auxio.linux.playback.Mpv
-import org.oxycblt.auxio.linux.playback.MpvPlayer
+import org.oxycblt.auxio.linux.playback.FakePlayer
 import org.oxycblt.auxio.linux.theme.SchemeType
 import org.oxycblt.auxio.linux.theme.ThemeMode
 import org.oxycblt.auxio.linux.theme.ThemeSettings
@@ -74,7 +72,7 @@ class ThemeRenderTest {
 
     private fun render(theme: ThemeSettings, name: String, height: Int, settings: Boolean): Path {
         val songs = tracks()
-        val player = MpvPlayer(audioDriver = "null")
+        val player = FakePlayer()
         val output = Files.createTempDirectory("auxio-theme").resolve("$name.png")
         try {
             val scene =
@@ -118,25 +116,15 @@ class ThemeRenderTest {
 
     @Test
     fun `renders a custom scheme`() {
-        assumeTrue(
-            runCatching { Mpv.load() }.isSuccess,
-            "libmpv is not installed, so the player cannot be constructed",
-        )
-
         val theme = ThemeSettings(mode = ThemeMode.CUSTOM, seed = "#e62a0d")
         assertTrue(Files.size(render(theme, "custom", height = 720, settings = false)) > 500)
     }
 
     @Test
     fun `the first frame is already the custom scheme`() {
-        assumeTrue(
-            runCatching { Mpv.load() }.isSuccess,
-            "libmpv is not installed, so the player cannot be constructed",
-        )
-
         val songs = tracks()
         val theme = ThemeSettings(mode = ThemeMode.CUSTOM, seed = "#e62a0d")
-        val player = MpvPlayer(audioDriver = "null")
+        val player = FakePlayer()
         try {
             val scene =
                 ImageComposeScene(width = 1100, height = 720) {
@@ -179,11 +167,6 @@ class ThemeRenderTest {
 
     @Test
     fun `renders every theme mode`() {
-        assumeTrue(
-            runCatching { Mpv.load() }.isSuccess,
-            "libmpv is not installed, so the player cannot be constructed",
-        )
-
         val wallpaper = gradient()
         val modes =
             listOf(
@@ -204,11 +187,6 @@ class ThemeRenderTest {
 
     @Test
     fun `renders the appearance settings`() {
-        assumeTrue(
-            runCatching { Mpv.load() }.isSuccess,
-            "libmpv is not installed, so the player cannot be constructed",
-        )
-
         val theme = ThemeSettings(mode = ThemeMode.CUSTOM, seed = "#e62a0d")
         assertTrue(Files.size(render(theme, "appearance", height = 1400, settings = true)) > 500)
     }
