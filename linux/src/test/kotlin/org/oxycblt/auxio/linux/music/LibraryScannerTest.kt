@@ -70,4 +70,39 @@ class LibraryScannerTest {
         assertEquals("Song", track.title)
         assertEquals("Song.opus", track.path.name)
     }
+
+    @Test
+    fun `a cached scan reuses tags for unchanged files`() {
+        val dir = root.resolve("music").createDirectories()
+        val file = dir.resolve("Song.flac").createFile()
+        val cache = root.resolve("cache").resolve("library")
+
+        val first = LibraryScanner.scan(listOf(dir), useCache = true, cacheFile = cache)
+        assertEquals("Song", first.songs.single().title)
+
+        // A second cached scan trusts the stored tags while the file is untouched.
+        val cached =
+            CachedTrack(
+                Files.getLastModifiedTime(file).toMillis(),
+                Files.size(file),
+                first.songs.single().copy(title = "Cached title"),
+            )
+        LibraryCache.write(cache, listOf(cached))
+        assertEquals(
+            "Cached title",
+            LibraryScanner.scan(listOf(dir), useCache = true, cacheFile = cache)
+                .songs
+                .single()
+                .title,
+        )
+
+        // A full scan ignores the cache and reads the file again.
+        assertEquals(
+            "Song",
+            LibraryScanner.scan(listOf(dir), useCache = false, cacheFile = cache)
+                .songs
+                .single()
+                .title,
+        )
+    }
 }

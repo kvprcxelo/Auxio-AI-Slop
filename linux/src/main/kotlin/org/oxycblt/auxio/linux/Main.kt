@@ -41,7 +41,7 @@ fun main(args: Array<String>) {
     val roots = args.map { Path(it) }.filter { it.exists() }.ifEmpty { listOf(defaultMusicDir()) }
 
     Storage.ensureDirectories()
-    val library = LibraryScanner.scan(roots)
+    val library = LibraryScanner.scan(roots, useCache = true, cacheFile = Storage.libraryCache)
 
     val player =
         try {

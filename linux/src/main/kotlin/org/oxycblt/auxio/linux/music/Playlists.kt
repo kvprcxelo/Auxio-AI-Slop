@@ -41,19 +41,29 @@ object Playlists {
     private val UNSAFE_NAME = Regex("""[/\\:*?"<>|]""")
 
     /**
-     * Playlists found under [roots] or in `~/auxio/playlists`, with entries matched against the
-     * scanned [songs].
+     * Playlists found under [roots] or in the managed [directory] (`~/auxio/playlists`), with
+     * entries matched against the scanned [songs].
      */
-    fun load(roots: List<Path>, songs: List<Track>): List<Playlist> {
+    fun load(
+        roots: List<Path>,
+        songs: List<Track>,
+        directory: Path = Storage.playlistDir,
+    ): List<Playlist> {
         if (songs.isEmpty()) return emptyList()
 
         val byPath = songs.associateBy { it.path.toAbsolutePath().normalize() }
-        val managed = Storage.playlistDir.toAbsolutePath().normalize()
+        val managed = directory.toAbsolutePath().normalize()
 
-        return (roots + Storage.playlistDir)
+        return buildList {
+                addAll(roots)
+                // Path is Iterable<Path>, so `roots + directory` would splice in its components.
+                add(directory)
+            }
             .distinct()
             .filter { Files.isDirectory(it) }
             .flatMap { root -> files(root) }
+            // A music root may contain the managed folder, which would find its files twice.
+            .distinctBy { it.toAbsolutePath().normalize() }
             .sortedBy { it.fileName.toString().lowercase() }
             .mapNotNull { file ->
                 // Playlists created here may still be empty; elsewhere an empty file is not one.

@@ -46,6 +46,9 @@ object Storage {
     /** Covers pulled out of tags or folders, so a rescan does not parse every file again. */
     val artworkCacheDir: Path by lazy { cacheDir.resolve("artwork") }
 
+    /** Tags read by the last scan, so a reload only parses files that changed. */
+    val libraryCache: Path by lazy { cacheDir.resolve("library") }
+
     /** `.m3u`/`.m3u8` files, in addition to any found next to the music itself. */
     val playlistDir: Path by lazy { home.resolve(APP_DIR).resolve("playlists") }
 

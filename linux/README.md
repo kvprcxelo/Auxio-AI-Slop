@@ -21,8 +21,9 @@ circular collage of their album covers with play and shuffle for the whole artis
 rows underneath. Artists are grouped
 case-insensitively, so "x" and "X" are one artist shown with whichever spelling occurs most, and
 repeated names inside one tag are dropped. Album dates are read from the date tag and shown in a
-format chosen in settings, defaulting to your system's short date. A settings page also offers a
-library rescan, the metadata separators used to split multi-artist tags, and a switch that sorts
+format chosen in settings, defaulting to your system's short date. A settings page also offers
+Reload and Full reload (see [Files](#files) for what each reads), the metadata separators used to
+split multi-artist tags, and a switch that sorts
 `*Song` or `(Song)` under its first letter instead of the symbol. Titles fall back to file names
 when a file carries no tags. The window's colour scheme follows your desktop's accent, or your
 wallpaper through matugen, or a seed colour you pick — see [Theming](#theming). Album artist and disc
@@ -54,13 +55,17 @@ Auxio keeps its own files in the usual places:
 | --- | --- |
 | Settings | `$XDG_CONFIG_HOME/auxio/config` (`~/.config/auxio/config`) |
 | Cover cache | `$XDG_CACHE_HOME/auxio/` (`~/.cache/auxio/`) |
+| Library cache | `$XDG_CACHE_HOME/auxio/library` (`~/.cache/auxio/library`) |
 | Playlists | `~/auxio/playlists` |
 
 The cover cache holds the pictures pulled out of tags and folders, so a launch does not re-read
 every file. It is safe to delete; it is rebuilt as covers are needed. It is capped at 500 MB by
 default and measured in blocks allocated on disk rather than in file sizes; once it passes that
 size the least recently stored covers are deleted. Empty "no artwork" markers are capped at 2 000
-entries as well, since a library without covers would otherwise leave one per song. Playlists in
+entries as well, since a library without covers would otherwise leave one per song. The library
+cache stores the tags read by the last scan, keyed by each file's path, size and modification time.
+**Reload** reuses those tags and only parses new or changed files; **Full reload** ignores the
+cache and re-reads every file. Either kind of scan rewrites it for the next reload. Playlists in
 `~/auxio/playlists` are read on every scan of the library, alongside any `.m3u`/`.m3u8` files next
 to your music. Playlists created or imported in the playlists tab are written here; an import
 copies the file and makes its entries absolute, so relative paths still resolve after the move.
@@ -82,8 +87,8 @@ default. There are three colour sources:
   settings unless you type a path in the field. matugen is optional: without it the desktop accent
   is used instead, and the settings say so. Its `config.toml` is created under
   `~/.config/matugen` when missing, because a fresh install otherwise fails on its first run.
-- **Deep customization** builds the scheme from a seed colour you type as `#rrggbb` (or `#rgb`)
-  or set with the red, green and blue sliders, plus a palette type (tonal spot, content, vibrant,
+- **Deep customization** builds the scheme from a seed colour you type as `#rrggbb` or set with
+  the red, green and blue sliders, plus a palette type (tonal spot, content, vibrant,
   expressive, neutral, monochrome). The type is not decoration: with matugen it picks matugen's
   palette, and without it the built-in generator shifts the hue and scales the chroma the same
   way, so Vibrant is louder and Monochrome is grey either way.
@@ -222,7 +227,7 @@ linux/
 ## Notes on the port
 
 - **MediaStore → filesystem walk.** Android's library is provided by the OS; here it is a
-  `java.nio` walk plus an extension filter, cached later in SQLite.
+  `java.nio` walk plus an extension filter, with the tags it reads cached between scans.
 - **Media3 → libmpv.** libmpv covers gapless playback, ReplayGain tags and the formats we need
   without vendoring a decoder stack. It is called through JNA, which is the same C API a
   hand-written JNI shim would use, with no native build step to keep in sync.

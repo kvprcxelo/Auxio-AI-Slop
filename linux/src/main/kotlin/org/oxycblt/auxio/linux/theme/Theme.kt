@@ -333,15 +333,10 @@ internal fun Color.toHsl(): FloatArray {
     return floatArrayOf(hue.mod(360f), saturation.coerceIn(0f, 1f), lightness)
 }
 
-/** `#rrggbb`, `#rgb` or `rrggbb`; null when the text is not a colour. */
+/** `#rrggbb` or `rrggbb`; null when the text is not a six-digit colour. */
 internal fun parseColor(text: String): Color? {
     val digits = text.trim().removePrefix("#")
-    val expanded =
-        when (digits.length) {
-            3 -> digits.map { "$it$it" }.joinToString("")
-            6 -> digits
-            else -> return null
-        }
-    val value = expanded.toLongOrNull(16) ?: return null
+    if (digits.length != 6) return null
+    val value = digits.toLongOrNull(16) ?: return null
     return Color(0xFF000000L or value)
 }

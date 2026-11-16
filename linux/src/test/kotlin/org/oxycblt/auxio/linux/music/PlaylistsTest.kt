@@ -19,6 +19,7 @@
 package org.oxycblt.auxio.linux.music
 
 import java.nio.file.Files
+import kotlin.io.path.createDirectories
 import kotlin.io.path.nameWithoutExtension
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -46,17 +47,32 @@ class PlaylistsTest {
     }
 
     @Test
-    fun `creates an empty playlist that shows up as a playlist`() {
-        val dir = Files.createTempDirectory("auxio-m3u-new")
-        val song = Files.writeString(dir.resolve("a.mp3"), "")
+    fun `creates an empty playlist that shows up in the playlists tab`() {
+        val directory = Files.createTempDirectory("auxio-m3u-new")
+        val music = Files.createTempDirectory("auxio-m3u-new-music")
+        val song = Files.writeString(music.resolve("a.mp3"), "")
 
-        val created = Playlists.create("Late night", dir)
+        val created = Playlists.create("Late night", directory)
 
         assertEquals("Late night.m3u", created?.fileName?.toString())
         assertTrue(Files.exists(created!!))
-        // An empty file next to music is not a playlist; one created here is, even with nothing in
-        // it.
-        assertEquals(0, Playlists.load(listOf(dir), listOf(Track(song, "A"))).size)
+        // The managed folder is searched even when it is not one of the music roots, and a
+        // playlist created there is kept while it is still empty.
+        val loaded = Playlists.load(listOf(music), listOf(Track(song, "A")), directory)
+        assertEquals(listOf("Late night"), loaded.map { it.name })
+    }
+
+    @Test
+    fun `lists a playlist once when a music root contains the managed folder`() {
+        val music = Files.createTempDirectory("auxio-m3u-nested")
+        val directory = Files.createDirectories(music.resolve("auxio").resolve("playlists"))
+        val song = Files.writeString(music.resolve("a.mp3"), "")
+        Playlists.create("Mix", directory)
+
+        val loaded = Playlists.load(listOf(music), listOf(Track(song, "A")), directory)
+
+        assertEquals(1, loaded.size)
+        assertEquals("Mix", loaded.single().name)
     }
 
     @Test

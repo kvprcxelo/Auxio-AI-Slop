@@ -56,6 +56,7 @@ import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Slider
@@ -96,6 +97,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.oxycblt.auxio.linux.Settings
+import org.oxycblt.auxio.linux.Storage
 import org.oxycblt.auxio.linux.music.Album
 import org.oxycblt.auxio.linux.music.Artist
 import org.oxycblt.auxio.linux.music.ArtworkStore
@@ -288,13 +290,23 @@ fun AuxioApp(
         )
     }
 
-    fun refresh() {
+    /** Rebuilds the library; [full] reads every file instead of reusing cached tags. */
+    fun reload(full: Boolean) {
         if (scanning) return
 
         scanning = true
-        notify("Scanning ${roots.joinToString()}…")
+        notify(if (full) "Scanning every file…" else "Reloading from cached tags…")
         scope.launch {
-            val result = withContext(Dispatchers.IO) { runCatching { LibraryScanner.scan(roots) } }
+            val result =
+                withContext(Dispatchers.IO) {
+                    runCatching {
+                        LibraryScanner.scan(
+                            roots,
+                            useCache = !full,
+                            cacheFile = Storage.libraryCache,
+                        )
+                    }
+                }
             result
                 .onSuccess { found ->
                     songs = found.songs
@@ -359,32 +371,64 @@ fun AuxioApp(
     MaterialTheme(colorScheme = scheme) {
         Surface(modifier = Modifier.fillMaxSize()) {
             Column(modifier = Modifier.fillMaxSize()) {
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(16.dp),
-                    verticalAlignment = Alignment.CenterVertically,
+                // Surface is the near-neutral Material role, which reads as grey whatever seed
+                // is chosen. The toolbar uses the seed's container colour instead, so changing
+                // the scheme is visible there too.
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    color = MaterialTheme.colorScheme.primaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
                 ) {
-                    Text(text = "Auxio", style = MaterialTheme.typography.headlineSmall)
-                    Spacer(modifier = Modifier.width(24.dp))
-                    OutlinedTextField(
-                        value = query,
-                        onValueChange = { query = it },
-                        singleLine = true,
-                        label = { Text("Search") },
-                        modifier = Modifier.width(280.dp),
-                    )
-                    Spacer(modifier = Modifier.weight(1f))
-                    Text(
-                        text =
-                            count(currentLibrary.songs.size, "song") +
-                                " · " +
-                                count(currentLibrary.albums.size, "album") +
-                                " · " +
-                                count(currentLibrary.artists.size, "artist"),
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    IconButton(onClick = { showSettings = !showSettings }) {
-                        Icon(imageVector = AuxioIcons.Settings, contentDescription = "Settings")
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(text = "Auxio", style = MaterialTheme.typography.headlineSmall)
+                        Spacer(modifier = Modifier.width(24.dp))
+                        OutlinedTextField(
+                            value = query,
+                            onValueChange = { query = it },
+                            singleLine = true,
+                            label = { Text("Search") },
+                            colors =
+                                OutlinedTextFieldDefaults.colors(
+                                    focusedTextColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                                    unfocusedTextColor =
+                                        MaterialTheme.colorScheme.onPrimaryContainer,
+                                    focusedBorderColor =
+                                        MaterialTheme.colorScheme.onPrimaryContainer,
+                                    unfocusedBorderColor =
+                                        MaterialTheme.colorScheme.onPrimaryContainer.copy(
+                                            alpha = 0.6f
+                                        ),
+                                    focusedLabelColor =
+                                        MaterialTheme.colorScheme.onPrimaryContainer,
+                                    unfocusedLabelColor =
+                                        MaterialTheme.colorScheme.onPrimaryContainer.copy(
+                                            alpha = 0.8f
+                                        ),
+                                    cursorColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                                ),
+                            modifier = Modifier.width(280.dp),
+                        )
+                        Spacer(modifier = Modifier.weight(1f))
+                        Text(
+                            text =
+                                count(currentLibrary.songs.size, "song") +
+                                    " · " +
+                                    count(currentLibrary.albums.size, "album") +
+                                    " · " +
+                                    count(currentLibrary.artists.size, "artist"),
+                            style = MaterialTheme.typography.labelMedium,
+                            color =
+                                MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.75f),
+                        )
+                        IconButton(onClick = { showSettings = !showSettings }) {
+                            Icon(
+                                imageVector = AuxioIcons.Settings,
+                                contentDescription = "Settings",
+                            )
+                        }
                     }
                 }
 
@@ -435,7 +479,8 @@ fun AuxioApp(
                                 // Dropping the limit should free the space straight away.
                                 scope.launch(Dispatchers.IO) { ArtworkStore.enforceLimit() }
                             },
-                            onRefresh = ::refresh,
+                            onReload = { reload(full = false) },
+                            onFullReload = { reload(full = true) },
                             theme = theme,
                             desktopAccent = desktopAppearance.accent,
                             desktopWallpaper = desktopWallpaper,
@@ -549,10 +594,16 @@ fun AuxioApp(
                                             Section.Playlists ->
                                                 if (visiblePlaylists.isEmpty()) {
                                                     EmptyPlaylists(
+                                                        menuOpen = playlistMenu,
+                                                        onToggleMenu = {
+                                                            playlistMenu = !playlistMenu
+                                                        },
                                                         onCreate = {
+                                                            playlistMenu = false
                                                             newPlaylistName = ""
                                                             creatingPlaylist = true
                                                         },
+                                                        onImport = ::importPlaylist,
                                                         modifier = Modifier.fillMaxSize(),
                                                     )
                                                 } else {
@@ -720,7 +771,13 @@ private fun sectionTracks(
 
 /** The empty playlists tab: the placeholder from the design, with a way out of it. */
 @Composable
-private fun EmptyPlaylists(onCreate: () -> Unit, modifier: Modifier = Modifier) {
+private fun EmptyPlaylists(
+    menuOpen: Boolean,
+    onToggleMenu: () -> Unit,
+    onCreate: () -> Unit,
+    onImport: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
     Column(
         modifier = modifier,
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -739,7 +796,15 @@ private fun EmptyPlaylists(onCreate: () -> Unit, modifier: Modifier = Modifier) 
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Spacer(modifier = Modifier.height(12.dp))
-        Button(onClick = onCreate) { Text("New playlist") }
+        if (menuOpen) {
+            PlaylistActionsMenu(onCreate = onCreate, onImport = onImport)
+            Spacer(modifier = Modifier.height(8.dp))
+        }
+        Button(onClick = onToggleMenu) {
+            Text("New playlist")
+            Spacer(modifier = Modifier.width(8.dp))
+            Icon(imageVector = AuxioIcons.ArrowDropDown, contentDescription = null)
+        }
     }
 }
 
@@ -835,7 +900,8 @@ private fun SettingsPage(
     desktopWallpaper: Path?,
     matugenAvailable: Boolean,
     onTheme: (ThemeSettings) -> Unit,
-    onRefresh: () -> Unit,
+    onReload: () -> Unit,
+    onFullReload: () -> Unit,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -941,7 +1007,7 @@ private fun SettingsPage(
                         )
                         Spacer(modifier = Modifier.width(12.dp))
                         Text(
-                            text = "Accepted as #rrggbb or #rgb.",
+                            text = "Accepted as #rrggbb.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -992,22 +1058,29 @@ private fun SettingsPage(
             SettingsDivider()
             SettingsHeading("Library")
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Button(onClick = onRefresh, enabled = !scanning) {
+                Button(onClick = onReload, enabled = !scanning) {
                     Icon(
                         imageVector = AuxioIcons.Refresh,
                         contentDescription = null,
                         modifier = Modifier.size(18.dp),
                     )
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text(if (scanning) "Scanning…" else "Refresh library")
+                    Text("Reload")
                 }
-                Spacer(modifier = Modifier.width(12.dp))
-                Text(
-                    text = "Rescan your music folders for new or removed files.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                Spacer(modifier = Modifier.width(8.dp))
+                OutlinedButton(onClick = onFullReload, enabled = !scanning) {
+                    Text("Full reload")
+                }
             }
+            Spacer(modifier = Modifier.size(8.dp))
+            SettingsNote(
+                if (scanning) {
+                    "Scanning your music folders…"
+                } else {
+                    "Reload reuses the tags cached by the last scan and only reads new or " +
+                        "changed files. Full reload re-reads every file, even unchanged ones."
+                }
+            )
 
             SettingsDivider()
             SettingsHeading("Metadata")

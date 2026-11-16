@@ -216,10 +216,11 @@ class ThemeTest {
     }
 
     @Test
-    fun `parses hex seeds in the forms the field accepts`() {
+    fun `parses hex seeds in the form the field accepts`() {
         assertEquals(Color(0xFFE62A0D), parseColor("#e62a0d"))
-        assertEquals(Color(0xFFFF0000), parseColor("#f00"))
         assertEquals(Color(0xFF00FF00), parseColor("00ff00"))
+        // Only the full six digits are a colour; the three-digit shorthand was removed.
+        assertNull(parseColor("#f00"))
         assertNull(parseColor("#12"))
         assertNull(parseColor("potato"))
     }
