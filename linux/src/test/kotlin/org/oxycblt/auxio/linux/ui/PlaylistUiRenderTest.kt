@@ -262,6 +262,103 @@ class PlaylistUiRenderTest {
     }
 
     @Test
+    fun `clicking the status message row closes the playlist menu`() {
+        val songs = tracks()
+        // Keep the playlists in a scanned root, so they survive the reload after removal.
+        val directory = songs.first().path.parent
+        val mixFile = directory.resolve("Mix.m3u")
+        val otherFile = directory.resolve("Other.m3u")
+        Files.writeString(mixFile, songs[0].path.toAbsolutePath().toString() + "\n")
+        Files.writeString(otherFile, songs[1].path.toAbsolutePath().toString() + "\n")
+        val playlists =
+            listOf(
+                Playlist("Mix", listOf(songs[0]), mixFile),
+                Playlist("Other", listOf(songs[1]), otherFile),
+            )
+        val player = FakePlayer()
+        val output = Files.createTempDirectory("auxio-playlist-message").resolve("menu-message.png")
+        try {
+            val scene =
+                ImageComposeScene(width = 1100, height = 720) {
+                    AuxioApp(
+                        player = player,
+                        library = Library.build(songs, playlists = playlists),
+                        roots = listOf(songs.first().path.parent),
+                        initialSeparators = ";",
+                    )
+                }
+            try {
+                fun click(x: Float, y: Float) {
+                    scene.sendPointerEvent(PointerEventType.Press, Offset(x, y))
+                    scene.sendPointerEvent(PointerEventType.Release, Offset(x, y))
+                    scene.render()
+                }
+
+                fun settle(frames: Int = 6) {
+                    repeat(frames) {
+                        Thread.sleep(50)
+                        scene.render()
+                    }
+                }
+
+                fun shot(name: String) {
+                    scene.render()
+                    val image = scene.render()
+                    val encoded = requireNotNull(image.encodeToData(EncodedImageFormat.PNG))
+                    Files.write(output.resolveSibling("$name.png"), encoded.bytes)
+                }
+
+                scene.render()
+                click(990f, 122f)
+                click(300f, 170f)
+                settle()
+
+                // Removing Mix's only song leaves a status row with Undo above the content.
+                click(1060f, 315f)
+                settle(20)
+                shot("menu-message-removed")
+
+                // Back to the list; the status row and its notice stay put.
+                click(51f, 190f)
+                settle()
+                shot("menu-message-back")
+
+                // Open the corner playlist menu over the list.
+                click(1052f, 566f)
+                settle()
+                shot("menu-message-open")
+                val open =
+                    javax.imageio.ImageIO.read(
+                        output.resolveSibling("menu-message-open.png").toFile()
+                    )
+                val openPixel = java.awt.Color(open.getRGB(970, 470))
+                assertTrue(openPixel.red > 50, "the playlist menu did not open")
+
+                // Clicking the status row dismisses it.
+                click(300f, 121f)
+                settle()
+                shot("menu-message-dismissed")
+                val dismissed =
+                    javax.imageio.ImageIO.read(
+                        output.resolveSibling("menu-message-dismissed.png").toFile()
+                    )
+                val pixel = java.awt.Color(dismissed.getRGB(970, 470))
+                assertTrue(
+                    pixel.red < 50 && pixel.green < 50,
+                    "the menu stayed open after a status row click " +
+                        "(${pixel.red}, ${pixel.green})",
+                )
+            } finally {
+                scene.close()
+            }
+        } finally {
+            player.close()
+        }
+
+        println("PLAYLIST_MESSAGE $output")
+    }
+
+    @Test
     fun `renders the add songs picker with a choice`() {
         val songs = tracks()
         val scheme = androidx.compose.material3.darkColorScheme()

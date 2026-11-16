@@ -537,20 +537,29 @@ fun AuxioApp(
                     }
 
                     message?.let { shown ->
-                        Row(
-                            modifier = Modifier.fillMaxWidth().padding(end = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Text(
-                                text = shown.text,
-                                style = MaterialTheme.typography.bodySmall,
-                                color =
-                                    if (shown.error) MaterialTheme.colorScheme.error
-                                    else MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.weight(1f).padding(start = 16.dp),
-                            )
-                            if (pendingUndo != null) {
-                                TextButton(onClick = ::undoRemoval) { Text("Undo") }
+                        Box(modifier = Modifier.fillMaxWidth()) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(end = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Text(
+                                    text = shown.text,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color =
+                                        if (shown.error) MaterialTheme.colorScheme.error
+                                        else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.weight(1f).padding(start = 16.dp),
+                                )
+                                if (pendingUndo != null) {
+                                    TextButton(onClick = ::undoRemoval) { Text("Undo") }
+                                }
+                            }
+                            // The status row dismisses an open playlist menu like the bars do.
+                            if (playlistMenu) {
+                                MenuScrim(
+                                    modifier = Modifier.matchParentSize(),
+                                    onDismiss = { playlistMenu = false },
+                                )
                             }
                         }
                     }
