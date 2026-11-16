@@ -495,32 +495,44 @@ fun AuxioApp(
         Box(modifier = Modifier.fillMaxSize()) {
             Surface(modifier = Modifier.fillMaxSize()) {
                 Column(modifier = Modifier.fillMaxSize()) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(16.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text(text = "Auxio", style = MaterialTheme.typography.headlineSmall)
-                        Spacer(modifier = Modifier.width(24.dp))
-                        OutlinedTextField(
-                            value = query,
-                            onValueChange = { query = it },
-                            singleLine = true,
-                            label = { Text("Search") },
-                            modifier = Modifier.width(280.dp),
-                        )
-                        Spacer(modifier = Modifier.weight(1f))
-                        Text(
-                            text =
-                                count(currentLibrary.songs.size, "song") +
-                                    " · " +
-                                    count(currentLibrary.albums.size, "album") +
-                                    " · " +
-                                    count(currentLibrary.artists.size, "artist"),
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        IconButton(onClick = { showSettings = !showSettings }) {
-                            Icon(imageVector = AuxioIcons.Settings, contentDescription = "Settings")
+                    Box(modifier = Modifier.fillMaxWidth()) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(16.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(text = "Auxio", style = MaterialTheme.typography.headlineSmall)
+                            Spacer(modifier = Modifier.width(24.dp))
+                            OutlinedTextField(
+                                value = query,
+                                onValueChange = { query = it },
+                                singleLine = true,
+                                label = { Text("Search") },
+                                modifier = Modifier.width(280.dp),
+                            )
+                            Spacer(modifier = Modifier.weight(1f))
+                            Text(
+                                text =
+                                    count(currentLibrary.songs.size, "song") +
+                                        " · " +
+                                        count(currentLibrary.albums.size, "album") +
+                                        " · " +
+                                        count(currentLibrary.artists.size, "artist"),
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            IconButton(onClick = { showSettings = !showSettings }) {
+                                Icon(
+                                    imageVector = AuxioIcons.Settings,
+                                    contentDescription = "Settings",
+                                )
+                            }
+                        }
+                        // Clicks anywhere in the top bar put an open playlist menu away.
+                        if (playlistMenu) {
+                            MenuScrim(
+                                modifier = Modifier.matchParentSize(),
+                                onDismiss = { playlistMenu = false },
+                            )
                         }
                     }
 
@@ -738,7 +750,7 @@ fun AuxioApp(
                                                     section == Section.Playlists &&
                                                     visiblePlaylists.isNotEmpty()
                                             ) {
-                                                MenuScrim { playlistMenu = false }
+                                                MenuScrim(onDismiss = { playlistMenu = false })
                                             }
 
                                             when {
@@ -824,32 +836,41 @@ fun AuxioApp(
                         }
                     }
 
-                    TransportBar(
-                        current = current,
-                        paused = paused,
-                        position = position,
-                        duration = duration,
-                        volume = volume,
-                        shuffle = shuffle,
-                        loop = loop,
-                        onToggleShuffle = ::toggleShuffle,
-                        onCycleLoop = ::cycleLoop,
-                        onPrevious = { step(forward = false) },
-                        onTogglePause = {
-                            current?.let {
-                                player.togglePause()
-                                paused = player.isPaused()
-                            }
-                        },
-                        onNext = { step(forward = true) },
-                        onSeek = { fraction ->
-                            if (duration > 0.0) player.seekTo(duration * fraction)
-                        },
-                        onVolume = {
-                            volume = it
-                            player.volume(it)
-                        },
-                    )
+                    Box(modifier = Modifier.fillMaxWidth()) {
+                        TransportBar(
+                            current = current,
+                            paused = paused,
+                            position = position,
+                            duration = duration,
+                            volume = volume,
+                            shuffle = shuffle,
+                            loop = loop,
+                            onToggleShuffle = ::toggleShuffle,
+                            onCycleLoop = ::cycleLoop,
+                            onPrevious = { step(forward = false) },
+                            onTogglePause = {
+                                current?.let {
+                                    player.togglePause()
+                                    paused = player.isPaused()
+                                }
+                            },
+                            onNext = { step(forward = true) },
+                            onSeek = { fraction ->
+                                if (duration > 0.0) player.seekTo(duration * fraction)
+                            },
+                            onVolume = {
+                                volume = it
+                                player.volume(it)
+                            },
+                        )
+                        // As with the top bar, clicking the player bar dismisses the menu.
+                        if (playlistMenu) {
+                            MenuScrim(
+                                modifier = Modifier.matchParentSize(),
+                                onDismiss = { playlistMenu = false },
+                            )
+                        }
+                    }
                 }
             }
 
@@ -951,14 +972,15 @@ private fun EmptyPlaylists(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Spacer(modifier = Modifier.height(12.dp))
-            if (menuOpen) {
-                PlaylistActionsMenu(onCreate = onCreate, onImport = onImport)
-                Spacer(modifier = Modifier.height(8.dp))
-            }
             Button(onClick = onToggleMenu) {
                 Text("New playlist")
                 Spacer(modifier = Modifier.width(8.dp))
                 Icon(imageVector = AuxioIcons.ArrowDropDown, contentDescription = null)
+            }
+            // The menu hangs under its button rather than covering it.
+            if (menuOpen) {
+                Spacer(modifier = Modifier.height(8.dp))
+                PlaylistActionsMenu(onCreate = onCreate, onImport = onImport)
             }
         }
     }
@@ -966,15 +988,17 @@ private fun EmptyPlaylists(
 
 /** Invisible catcher that closes an open playlist menu when the page behind it is clicked. */
 @Composable
-private fun MenuScrim(onDismiss: () -> Unit) {
+private fun MenuScrim(
+    onDismiss: () -> Unit,
+    modifier: Modifier = Modifier.fillMaxSize(),
+) {
     Box(
         modifier =
-            Modifier.fillMaxSize()
-                .clickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null,
-                    onClick = onDismiss,
-                )
+            modifier.clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = onDismiss,
+            )
     )
 }
 

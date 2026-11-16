@@ -60,7 +60,7 @@ class PlaylistUiRenderTest {
         playlistTab: Boolean,
         fabY: Float?,
         emptyMenu: Boolean = false,
-        dismissMenu: Boolean = false,
+        dismissAt: Pair<Float, Float>? = null,
     ): Path {
         val songs = tracks()
         val player = FakePlayer()
@@ -98,9 +98,8 @@ class PlaylistUiRenderTest {
                 val encoded = requireNotNull(image.encodeToData(EncodedImageFormat.PNG))
                 Files.write(output, encoded.bytes)
 
-                if (dismissMenu) {
-                    // Click empty space in the list, well away from the menu.
-                    click(500f, 300f)
+                if (dismissAt != null) {
+                    click(dismissAt.first, dismissAt.second)
                     scene.render()
                     val dismissed = scene.render()
                     val dismissedPng =
@@ -306,7 +305,7 @@ class PlaylistUiRenderTest {
                 "menu-dismiss",
                 playlistTab = true,
                 fabY = 566f,
-                dismissMenu = true,
+                dismissAt = 500f to 300f,
             )
         val image =
             javax.imageio.ImageIO.read(path.resolveSibling("menu-dismiss-dismissed.png").toFile())
@@ -326,19 +325,61 @@ class PlaylistUiRenderTest {
                 playlistTab = true,
                 fabY = null,
                 emptyMenu = true,
-                dismissMenu = true,
+                dismissAt = 300f to 300f,
             )
         val opened = javax.imageio.ImageIO.read(path.toFile())
         val dismissed =
             javax.imageio.ImageIO.read(
                 path.resolveSibling("empty-menu-dismiss-dismissed.png").toFile()
             )
-        val openPixel = java.awt.Color(opened.getRGB(550, 400))
-        val closedPixel = java.awt.Color(dismissed.getRGB(550, 400))
+        val openPixel = java.awt.Color(opened.getRGB(550, 480))
+        val closedPixel = java.awt.Color(dismissed.getRGB(550, 480))
         assertTrue(openPixel.red > 50, "the empty playlists menu did not open")
         assertTrue(
             closedPixel.red < 50,
             "the empty playlists menu stayed open (${closedPixel.red})",
+        )
+    }
+
+    @Test
+    fun `clicking the top bar closes the playlist menu`() {
+        val songs = tracks()
+        val path =
+            render(
+                listOf(Playlist("Mix", songs, Path.of("Mix.m3u"))),
+                "menu-top-bar",
+                playlistTab = true,
+                fabY = 566f,
+                dismissAt = 550f to 20f,
+            )
+        val image =
+            javax.imageio.ImageIO.read(path.resolveSibling("menu-top-bar-dismissed.png").toFile())
+        val pixel = java.awt.Color(image.getRGB(970, 470))
+        assertTrue(
+            pixel.red < 50 && pixel.green < 50,
+            "the menu stayed open after a top bar click (${pixel.red}, ${pixel.green})",
+        )
+    }
+
+    @Test
+    fun `clicking the player bar closes the playlist menu`() {
+        val songs = tracks()
+        val path =
+            render(
+                listOf(Playlist("Mix", songs, Path.of("Mix.m3u"))),
+                "menu-player-bar",
+                playlistTab = true,
+                fabY = 566f,
+                dismissAt = 550f to 650f,
+            )
+        val image =
+            javax.imageio.ImageIO.read(
+                path.resolveSibling("menu-player-bar-dismissed.png").toFile()
+            )
+        val pixel = java.awt.Color(image.getRGB(970, 470))
+        assertTrue(
+            pixel.red < 50 && pixel.green < 50,
+            "the menu stayed open after a player bar click (${pixel.red}, ${pixel.green})",
         )
     }
 
