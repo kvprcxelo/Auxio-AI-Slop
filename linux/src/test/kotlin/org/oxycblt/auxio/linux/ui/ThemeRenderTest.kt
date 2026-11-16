@@ -123,7 +123,7 @@ class ThemeRenderTest {
             "libmpv is not installed, so the player cannot be constructed",
         )
 
-        val theme = ThemeSettings(mode = ThemeMode.CUSTOM, hue = 10f, chroma = 70f)
+        val theme = ThemeSettings(mode = ThemeMode.CUSTOM, seed = "#e62a0d")
         assertTrue(Files.size(render(theme, "custom", height = 720, settings = false)) > 500)
     }
 
@@ -135,7 +135,7 @@ class ThemeRenderTest {
         )
 
         val songs = tracks()
-        val theme = ThemeSettings(mode = ThemeMode.CUSTOM, hue = 10f, chroma = 80f)
+        val theme = ThemeSettings(mode = ThemeMode.CUSTOM, seed = "#e62a0d")
         val player = MpvPlayer(audioDriver = "null")
         try {
             val scene =
@@ -192,8 +192,7 @@ class ThemeRenderTest {
                     "mode-matugen",
                 ThemeSettings(
                     mode = ThemeMode.CUSTOM,
-                    hue = 190f,
-                    chroma = 90f,
+                    seed = "#0aa7c7",
                     type = SchemeType.VIBRANT,
                 ) to "mode-custom",
             )
@@ -210,7 +209,7 @@ class ThemeRenderTest {
             "libmpv is not installed, so the player cannot be constructed",
         )
 
-        val theme = ThemeSettings(mode = ThemeMode.CUSTOM, hue = 10f, chroma = 70f)
+        val theme = ThemeSettings(mode = ThemeMode.CUSTOM, seed = "#e62a0d")
         assertTrue(Files.size(render(theme, "appearance", height = 1400, settings = true)) > 500)
     }
 }

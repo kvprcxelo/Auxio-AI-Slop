@@ -20,6 +20,7 @@ package org.oxycblt.auxio.linux.theme
 
 import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.lightColorScheme
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import java.nio.file.Files
@@ -28,27 +29,33 @@ import kotlin.math.roundToInt
 
 /** Where the colour scheme comes from. */
 enum class ThemeMode(val label: String, val description: String) {
-    DESKTOP("Desktop colours", "Use the accent colour and appearance your desktop reports"),
+    DESKTOP("Desktop colours", "Use the accent colour your desktop reports"),
     MATUGEN("Matugen", "Generate the scheme from your wallpaper with matugen"),
-    CUSTOM("Deep customization", "Choose the scheme's hue and chroma yourself"),
+    CUSTOM("Deep customization", "Choose the seed colour and palette yourself"),
+}
+
+/** Whether the window is light or dark, or follows the desktop. */
+enum class Brightness(val label: String) {
+    SYSTEM("System"),
+    LIGHT("Light"),
+    DARK("Dark"),
 }
 
 /** Everything the theme needs from the user, stored in the settings file. */
 data class ThemeSettings(
     val mode: ThemeMode = ThemeMode.DESKTOP,
-    val hue: Float = 258f,
-    val chroma: Float = 48f,
+    val brightness: Brightness = Brightness.SYSTEM,
+    /** The custom seed, as `#rrggbb`; it is what the sRGB sliders and the hex field edit. */
+    val seed: String = DEFAULT_SEED,
     val wallpaper: String = "",
     val type: SchemeType = SchemeType.TONAL_SPOT,
 ) {
-    /** The colour the custom scheme is built around. */
-    val seed: Color
-        get() =
-            Color.hsl(
-                hue = hue.mod(360f),
-                saturation = chroma.coerceIn(0f, 100f) / 100f,
-                lightness = 0.5f,
-            )
+    val seedColor: Color
+        get() = parseColor(seed) ?: parseColor(DEFAULT_SEED) ?: Desktop.DEFAULT_ACCENT
+
+    companion object {
+        const val DEFAULT_SEED = "#6750a4"
+    }
 }
 
 /**
@@ -70,18 +77,21 @@ object Themes {
     ): ColorScheme {
         val accent = appearance.accent ?: Desktop.DEFAULT_ACCENT
         val image = wallpaperOf(settings, wallpaper)
+        val dark = isDark(settings, appearance)
 
         return when (settings.mode) {
-            ThemeMode.DESKTOP -> fromSeed(accent, settings)
-            ThemeMode.CUSTOM -> fromSeed(settings.seed, settings)
+            ThemeMode.DESKTOP -> fromSeed(accent, settings, dark)
+            ThemeMode.CUSTOM -> fromSeed(settings.seedColor, settings, dark)
             ThemeMode.MATUGEN -> {
-                val computed = image?.let { Matugen.fromImage(it, settings.type.flag) }
+                val computed = image?.let { Matugen.fromImage(it, settings.type.flag, dark) }
                 if (image != null && computed != null) {
-                    cache.store(cacheKey(settings.type, image), computed)
+                    cache.store(cacheKey(settings.type, image, dark), computed)
                 }
-                computed?.let(::schemeOf)
-                    ?: image?.let { cache.roles(cacheKey(settings.type, it)) }?.let(::schemeOf)
-                    ?: fromSeed(accent, settings)
+                computed?.let { schemeOf(it, dark) }
+                    ?: image
+                        ?.let { cache.roles(cacheKey(settings.type, it, dark)) }
+                        ?.let { schemeOf(it, dark) }
+                    ?: fromSeed(accent, settings, dark)
             }
         }
     }
@@ -101,39 +111,35 @@ object Themes {
         cache: ThemeCache = ThemeCache(),
     ): ColorScheme {
         val accent = appearance.accent ?: Desktop.DEFAULT_ACCENT
+        val dark = isDark(settings, appearance)
 
         return when (settings.mode) {
-            ThemeMode.DESKTOP -> fromSeed(accent, settings)
-            ThemeMode.CUSTOM -> fromSeed(settings.seed, settings)
+            ThemeMode.DESKTOP -> fromSeed(accent, settings, dark)
+            ThemeMode.CUSTOM -> fromSeed(settings.seedColor, settings, dark)
             ThemeMode.MATUGEN -> {
                 val image = wallpaperOf(settings, wallpaper)
-                val cached = image?.let { cache.roles(cacheKey(settings.type, it)) }
-                cached?.let(::schemeOf) ?: fromSeed(accent, settings)
+                val cached = image?.let { cache.roles(cacheKey(settings.type, it, dark)) }
+                cached?.let { schemeOf(it, dark) } ?: fromSeed(accent, settings, dark)
             }
         }
     }
 
-    private fun wallpaperOf(settings: ThemeSettings, wallpaper: Path?): Path? =
-        settings.wallpaper.takeIf { it.isNotBlank() }?.let(Path::of) ?: wallpaper
-
-    /**
-     * Identifies a wallpaper palette, so an edited wallpaper or another palette misses the cache.
-     */
-    internal fun cacheKey(type: SchemeType, image: Path): String {
-        val size = runCatching { Files.size(image) }.getOrDefault(-1L)
-        val modified = runCatching { Files.getLastModifiedTime(image).toMillis() }.getOrDefault(-1L)
-        return "${type.flag}|$size|$modified|${image.toAbsolutePath().normalize()}"
-    }
+    /** Dark unless the settings say otherwise; [Brightness.SYSTEM] asks the desktop. */
+    internal fun isDark(settings: ThemeSettings, appearance: Desktop.Appearance): Boolean =
+        when (settings.brightness) {
+            Brightness.LIGHT -> false
+            Brightness.DARK -> true
+            Brightness.SYSTEM -> appearance.dark
+        }
 
     /** The scheme matugen builds from [seed], or the built-in approximation when it is absent. */
-    private fun fromSeed(seed: Color, settings: ThemeSettings): ColorScheme =
-        (if (Matugen.isAvailable()) Matugen.fromColor(seed, settings.type.flag) else null)?.let(
-            ::schemeOf
-        ) ?: Approximation.scheme(seed, settings.type)
+    private fun fromSeed(seed: Color, settings: ThemeSettings, dark: Boolean): ColorScheme =
+        (if (Matugen.isAvailable()) Matugen.fromColor(seed, settings.type.flag, dark) else null)
+            ?.let { schemeOf(it, dark) } ?: Approximation.scheme(seed, settings.type, dark)
 
     /** Reads matugen's snake_case roles into Compose's camelCase scheme. */
-    internal fun schemeOf(roles: Map<String, String>): ColorScheme {
-        val base = darkColorScheme()
+    internal fun schemeOf(roles: Map<String, String>, dark: Boolean): ColorScheme {
+        val base = if (dark) darkColorScheme() else lightColorScheme()
 
         fun role(name: String, fallback: Color): Color = roles[name]?.let(::colorOf) ?: fallback
 
@@ -170,7 +176,20 @@ object Themes {
         )
     }
 
-    internal fun colorOf(hex: String): Color? = Desktop.parseHex(hex)
+    internal fun colorOf(hex: String): Color? = parseColor(hex)
+
+    private fun wallpaperOf(settings: ThemeSettings, wallpaper: Path?): Path? =
+        settings.wallpaper.trim().takeIf { it.isNotEmpty() }?.let(Path::of) ?: wallpaper
+
+    /**
+     * Identifies a wallpaper palette, so an edited wallpaper or another palette misses the cache.
+     */
+    internal fun cacheKey(type: SchemeType, image: Path, dark: Boolean): String {
+        val size = runCatching { Files.size(image) }.getOrDefault(-1L)
+        val modified = runCatching { Files.getLastModifiedTime(image).toMillis() }.getOrDefault(-1L)
+        val light = if (dark) "dark" else "light"
+        return "$light|${type.flag}|$size|$modified|${image.toAbsolutePath().normalize()}"
+    }
 
     /**
      * Stands in for matugen when it is not installed: the seed's hue carries the primary and
@@ -181,8 +200,6 @@ object Themes {
      * and chroma, so picking Vibrant or Monochrome changes the scheme either way.
      */
     internal object Approximation {
-        private const val SURFACE_LIGHTNESS = 0.07f
-
         /** How a palette type leans the seed: hue offsets in degrees, chroma as a multiplier. */
         private data class Palette(
             val primaryHue: Float = 0f,
@@ -202,7 +219,11 @@ object Themes {
                 SchemeType.MONOCHROME -> Palette(secondaryHue = 0f, tertiaryHue = 0f, chroma = 0f)
             }
 
-        fun scheme(seed: Color, type: SchemeType = SchemeType.TONAL_SPOT): ColorScheme {
+        fun scheme(
+            seed: Color,
+            type: SchemeType = SchemeType.TONAL_SPOT,
+            dark: Boolean = true,
+        ): ColorScheme {
             val hsl = seed.toHsl()
             val palette = palette(type)
             val hue = (hsl[0] + palette.primaryHue).mod(360f)
@@ -211,59 +232,84 @@ object Themes {
             fun tone(lightness: Float, saturation: Float): Color =
                 Color.hsl(hue, (chroma * saturation).coerceIn(0f, 1f), lightness)
 
-            val surface = tone(SURFACE_LIGHTNESS, 0.08f)
-            val surfaceVariant = tone(0.17f, 0.10f)
-            val onSurface = tone(0.93f, 0.04f)
-            val onSurfaceVariant = tone(0.78f, 0.07f)
-            val primary = tone(0.76f, 0.55f)
-            val primaryContainer = tone(0.30f, 0.45f)
+            val surface = tone(if (dark) 0.07f else 0.98f, 0.08f)
+            val surfaceVariant = tone(if (dark) 0.17f else 0.92f, 0.10f)
+            val onSurface = tone(if (dark) 0.93f else 0.11f, 0.04f)
+            val onSurfaceVariant = tone(if (dark) 0.78f else 0.30f, 0.07f)
+            val primary = tone(if (dark) 0.76f else 0.42f, 0.55f)
+            val primaryContainer = tone(if (dark) 0.30f else 0.90f, 0.45f)
             val secondaryHue = (hue + palette.secondaryHue).mod(360f)
-            val secondary = Color.hsl(secondaryHue, (chroma * 0.30f).coerceIn(0f, 1f), 0.72f)
+            val secondary =
+                Color.hsl(
+                    secondaryHue,
+                    (chroma * 0.30f).coerceIn(0f, 1f),
+                    if (dark) 0.72f else 0.45f,
+                )
             val secondaryContainer =
-                Color.hsl(secondaryHue, (chroma * 0.24f).coerceIn(0f, 1f), 0.28f)
+                Color.hsl(
+                    secondaryHue,
+                    (chroma * 0.24f).coerceIn(0f, 1f),
+                    if (dark) 0.28f else 0.90f,
+                )
             val tertiaryHue = (hue + palette.tertiaryHue).mod(360f)
-            val tertiary = Color.hsl(tertiaryHue, (chroma * 0.45f).coerceIn(0f, 1f), 0.74f)
-            val tertiaryContainer = Color.hsl(tertiaryHue, (chroma * 0.35f).coerceIn(0f, 1f), 0.29f)
+            val tertiary =
+                Color.hsl(
+                    tertiaryHue,
+                    (chroma * 0.45f).coerceIn(0f, 1f),
+                    if (dark) 0.74f else 0.42f,
+                )
+            val tertiaryContainer =
+                Color.hsl(
+                    tertiaryHue,
+                    (chroma * 0.35f).coerceIn(0f, 1f),
+                    if (dark) 0.29f else 0.90f,
+                )
+            val error = Color.hsl(6f, 0.72f, if (dark) 0.74f else 0.42f)
+            val errorContainer = Color.hsl(6f, 0.50f, if (dark) 0.30f else 0.90f)
 
-            return darkColorScheme(
+            return (if (dark) darkColorScheme() else lightColorScheme()).copy(
                 primary = primary,
-                onPrimary = contrasting(primary, dark = 0.12f, light = 0.95f),
+                onPrimary = contrasting(primary, dark),
                 primaryContainer = primaryContainer,
-                onPrimaryContainer = contrasting(primaryContainer, dark = 0.92f, light = 0.10f),
-                inversePrimary = tone(0.42f, 0.50f),
+                onPrimaryContainer = contrasting(primaryContainer, dark),
+                inversePrimary = tone(if (dark) 0.42f else 0.78f, 0.50f),
                 secondary = secondary,
-                onSecondary = contrasting(secondary, dark = 0.12f, light = 0.95f),
+                onSecondary = contrasting(secondary, dark),
                 secondaryContainer = secondaryContainer,
-                onSecondaryContainer = contrasting(secondaryContainer, dark = 0.92f, light = 0.10f),
+                onSecondaryContainer = contrasting(secondaryContainer, dark),
                 tertiary = tertiary,
-                onTertiary = contrasting(tertiary, dark = 0.12f, light = 0.95f),
+                onTertiary = contrasting(tertiary, dark),
                 tertiaryContainer = tertiaryContainer,
-                onTertiaryContainer = contrasting(tertiaryContainer, dark = 0.92f, light = 0.10f),
-                error = Color.hsl(6f, 0.72f, 0.74f),
-                onError = Color.hsl(6f, 0.85f, 0.13f),
-                errorContainer = Color.hsl(6f, 0.50f, 0.30f),
-                onErrorContainer = Color.hsl(6f, 0.75f, 0.90f),
+                onTertiaryContainer = contrasting(tertiaryContainer, dark),
+                error = error,
+                onError = contrasting(error, dark),
+                errorContainer = errorContainer,
+                onErrorContainer = contrasting(errorContainer, dark),
                 background = surface,
                 onBackground = onSurface,
                 surface = surface,
                 onSurface = onSurface,
                 surfaceVariant = surfaceVariant,
                 onSurfaceVariant = onSurfaceVariant,
+                surfaceTint = primary,
                 inverseSurface = onSurface,
                 inverseOnSurface = surface,
-                outline = tone(0.55f, 0.08f),
-                outlineVariant = tone(0.30f, 0.10f),
+                outline = tone(if (dark) 0.55f else 0.50f, 0.08f),
+                outlineVariant = tone(if (dark) 0.30f else 0.78f, 0.10f),
                 scrim = Color.Black,
             )
         }
 
         /** Dark text on a light fill, light text on a dark one, so labels stay readable. */
-        private fun contrasting(fill: Color, dark: Float, light: Float): Color =
-            Color.hsl(fill.toHsl()[0], 0.25f, if (fill.luminance() > 0.45f) dark else light)
+        private fun contrasting(fill: Color, @Suppress("UNUSED_PARAMETER") dark: Boolean): Color {
+            val hue = fill.toHsl()[0]
+            val lightFill = fill.luminance() > 0.45f
+            return Color.hsl(hue, 0.25f, if (lightFill) 0.13f else 0.95f)
+        }
     }
 }
 
-/** `#rrggbb`, for naming a detected colour in the settings. */
+/** `#rrggbb`, for naming a colour in the settings. */
 fun Color.toHexString(): String {
     fun channel(value: Float): Int = (value.coerceIn(0f, 1f) * 255f).roundToInt()
     return "#%02x%02x%02x".format(channel(red), channel(green), channel(blue))
@@ -285,4 +331,17 @@ internal fun Color.toHsl(): FloatArray {
             else -> 60f * ((red - green) / delta + 4f)
         }
     return floatArrayOf(hue.mod(360f), saturation.coerceIn(0f, 1f), lightness)
+}
+
+/** `#rrggbb`, `#rgb` or `rrggbb`; null when the text is not a colour. */
+internal fun parseColor(text: String): Color? {
+    val digits = text.trim().removePrefix("#")
+    val expanded =
+        when (digits.length) {
+            3 -> digits.map { "$it$it" }.joinToString("")
+            6 -> digits
+            else -> return null
+        }
+    val value = expanded.toLongOrNull(16) ?: return null
+    return Color(0xFF000000L or value)
 }

@@ -35,6 +35,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -44,6 +45,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FloatingActionButton
@@ -109,12 +111,14 @@ import org.oxycblt.auxio.linux.playback.DebugLog
 import org.oxycblt.auxio.linux.playback.LoopMode
 import org.oxycblt.auxio.linux.playback.MpvPlayer
 import org.oxycblt.auxio.linux.playback.PlayQueue
+import org.oxycblt.auxio.linux.theme.Brightness
 import org.oxycblt.auxio.linux.theme.Desktop
 import org.oxycblt.auxio.linux.theme.Matugen
 import org.oxycblt.auxio.linux.theme.SchemeType
 import org.oxycblt.auxio.linux.theme.ThemeMode
 import org.oxycblt.auxio.linux.theme.ThemeSettings
 import org.oxycblt.auxio.linux.theme.Themes
+import org.oxycblt.auxio.linux.theme.parseColor
 import org.oxycblt.auxio.linux.theme.toHexString
 
 private enum class Section(val label: String) {
@@ -166,7 +170,11 @@ fun AuxioApp(
 
     val desktopAppearance = remember { Desktop.appearance() }
     val desktopWallpaper = remember { Desktop.wallpaper() }
-    val matugenAvailable = remember { Matugen.isAvailable() }
+    val matugenAvailable = remember {
+        Matugen.isAvailable().also { available ->
+            if (available) Matugen.ensureConfig()
+        }
+    }
 
     // The first frame is already the real scheme: desktop and custom seeds are built here, and a
     // wallpaper reuses its cached result instead of showing the old palette until matugen finishes.
@@ -273,6 +281,7 @@ fun AuxioApp(
     if (creatingPlaylist) {
         NewPlaylistDialog(
             name = newPlaylistName,
+            scheme = scheme,
             onName = { newPlaylistName = it },
             onCreate = ::createPlaylist,
             onDismiss = { creatingPlaylist = false },
@@ -304,7 +313,7 @@ fun AuxioApp(
             duration = player.duration()
             // mpv reports pause=false while idle, so an empty queue is paused by definition.
             paused = queue.current == null || player.isPaused()
-            delay(100)
+            delay(250)
         }
     }
 
@@ -459,6 +468,7 @@ fun AuxioApp(
                                     dateFormat = dateFormat,
                                     onBack = { openAlbum = null },
                                     onPlay = { index -> play(album.tracks, index) },
+                                    onShuffle = { shufflePlay(album.tracks) },
                                     modifier = contentModifier,
                                 )
                             artist != null ->
@@ -736,26 +746,30 @@ private fun EmptyPlaylists(onCreate: () -> Unit, modifier: Modifier = Modifier) 
 @Composable
 private fun NewPlaylistDialog(
     name: String,
+    scheme: ColorScheme,
     onName: (String) -> Unit,
     onCreate: () -> Unit,
     onDismiss: () -> Unit,
 ) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("New playlist") },
-        text = {
-            OutlinedTextField(
-                value = name,
-                onValueChange = onName,
-                singleLine = true,
-                label = { Text("Name") },
-            )
-        },
-        confirmButton = {
-            TextButton(onClick = onCreate, enabled = name.isNotBlank()) { Text("Create") }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
-    )
+    // The dialog is a window of its own: without the theme it falls back to the light default.
+    MaterialTheme(colorScheme = scheme) {
+        AlertDialog(
+            onDismissRequest = onDismiss,
+            title = { Text("New playlist") },
+            text = {
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = onName,
+                    singleLine = true,
+                    label = { Text("Name") },
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = onCreate, enabled = name.isNotBlank()) { Text("Create") }
+            },
+            dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+        )
+    }
 }
 
 /** The two ways to get a playlist into the library, opened from the corner button. */
@@ -834,14 +848,22 @@ private fun SettingsPage(
                     .verticalScroll(rememberScrollState())
                     .padding(horizontal = 16.dp, vertical = 8.dp)
         ) {
-            Text(text = "Appearance", style = MaterialTheme.typography.titleMedium)
-            Spacer(modifier = Modifier.size(4.dp))
-            Text(
-                text = "The colour scheme the whole window is drawn in.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Spacer(modifier = Modifier.size(8.dp))
+            SettingsHeading("Appearance", first = true)
+
+            SettingsLabel("Brightness")
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Brightness.entries.forEach { brightness ->
+                    FilterChip(
+                        selected = theme.brightness == brightness,
+                        onClick = { onTheme(theme.copy(brightness = brightness)) },
+                        label = { Text(brightness.label) },
+                    )
+                }
+            }
+            SettingsNote("System follows your desktop's own light or dark preference.")
+
+            Spacer(modifier = Modifier.size(16.dp))
+            SettingsLabel("Colour source")
             ThemeMode.entries.forEach { mode ->
                 ThemeModeRow(
                     mode = mode,
@@ -873,14 +895,15 @@ private fun SettingsPage(
                         placeholder = {
                             Text(desktopWallpaper?.toString() ?: "No wallpaper detected")
                         },
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier.fillMaxWidth().widthIn(max = 720.dp),
                     )
                     Spacer(modifier = Modifier.size(8.dp))
                     Text(
                         text =
                             if (matugenAvailable) {
                                 "matugen reads the wallpaper's colours. Leave the field empty to " +
-                                    "use the one the desktop reports."
+                                    "use the one the desktop reports. Its configuration lives in " +
+                                    "~/.config/matugen/config.toml, which Auxio creates if missing."
                             } else {
                                 "matugen is not installed, so the desktop accent is used instead. " +
                                     "Install it to follow a wallpaper."
@@ -889,30 +912,66 @@ private fun SettingsPage(
                         color =
                             if (matugenAvailable) MaterialTheme.colorScheme.onSurfaceVariant
                             else MaterialTheme.colorScheme.error,
+                        modifier = Modifier.widthIn(max = 720.dp),
                     )
                 }
                 ThemeMode.CUSTOM -> {
-                    Text(
-                        text = "Hue ${theme.hue.roundToInt()}°",
-                        style = MaterialTheme.typography.bodyMedium,
-                    )
-                    Slider(
-                        value = theme.hue,
-                        onValueChange = { onTheme(theme.copy(hue = it)) },
-                        valueRange = 0f..360f,
-                    )
-                    Text(
-                        text = "Chroma ${theme.chroma.roundToInt()}%",
-                        style = MaterialTheme.typography.bodyMedium,
-                    )
-                    Slider(
-                        value = theme.chroma,
-                        onValueChange = { onTheme(theme.copy(chroma = it)) },
-                        valueRange = 0f..100f,
-                    )
+                    val seed = theme.seedColor
+                    val red = (seed.red * 255f).roundToInt()
+                    val green = (seed.green * 255f).roundToInt()
+                    val blue = (seed.blue * 255f).roundToInt()
+
+                    SettingsLabel("Seed colour")
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        ColorSwatch(seed)
+                        Spacer(modifier = Modifier.width(12.dp))
+                        var hex by remember(theme.seed) { mutableStateOf(theme.seed) }
+                        OutlinedTextField(
+                            value = hex,
+                            onValueChange = { typed ->
+                                hex = typed
+                                parseColor(typed)?.let {
+                                    onTheme(theme.copy(seed = it.toHexString()))
+                                }
+                            },
+                            singleLine = true,
+                            label = { Text("Hex") },
+                            isError = parseColor(hex) == null,
+                            modifier = Modifier.width(200.dp),
+                        )
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Text(
+                            text = "Accepted as #rrggbb or #rgb.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+
                     Spacer(modifier = Modifier.size(8.dp))
-                    Text(text = "Palette", style = MaterialTheme.typography.bodyMedium)
-                    Spacer(modifier = Modifier.size(4.dp))
+                    ChannelSlider("Red", red) { value ->
+                        onTheme(
+                            theme.copy(
+                                seed = Color(value / 255f, green / 255f, blue / 255f).toHexString()
+                            )
+                        )
+                    }
+                    ChannelSlider("Green", green) { value ->
+                        onTheme(
+                            theme.copy(
+                                seed = Color(red / 255f, value / 255f, blue / 255f).toHexString()
+                            )
+                        )
+                    }
+                    ChannelSlider("Blue", blue) { value ->
+                        onTheme(
+                            theme.copy(
+                                seed = Color(red / 255f, green / 255f, value / 255f).toHexString()
+                            )
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.size(8.dp))
+                    SettingsLabel("Palette")
                     SchemeType.entries.toList().chunked(3).forEach { row ->
                         Row(
                             modifier = Modifier.fillMaxWidth(),
@@ -927,25 +986,11 @@ private fun SettingsPage(
                             }
                         }
                     }
-                    Spacer(modifier = Modifier.size(8.dp))
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        ColorSwatch(theme.seed)
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Text(
-                            text = "Seed colour ${theme.seed.toHexString()}",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
                 }
             }
 
-            Spacer(modifier = Modifier.size(16.dp))
-            HorizontalDivider()
-            Spacer(modifier = Modifier.size(16.dp))
-
-            Text(text = "Library", style = MaterialTheme.typography.titleMedium)
-            Spacer(modifier = Modifier.size(8.dp))
+            SettingsDivider()
+            SettingsHeading("Library")
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Button(onClick = onRefresh, enabled = !scanning) {
                     Icon(
@@ -964,18 +1009,10 @@ private fun SettingsPage(
                 )
             }
 
-            Spacer(modifier = Modifier.size(16.dp))
-            HorizontalDivider()
-            Spacer(modifier = Modifier.size(16.dp))
+            SettingsDivider()
+            SettingsHeading("Metadata")
 
-            Text(text = "Metadata", style = MaterialTheme.typography.titleMedium)
-            Spacer(modifier = Modifier.size(8.dp))
-            Text(
-                text = "Artist separators",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Spacer(modifier = Modifier.size(8.dp))
+            SettingsLabel("Artist separators")
             OutlinedTextField(
                 value = separators,
                 onValueChange = { onSeparators(it.filterNot { char -> char.isWhitespace() }) },
@@ -984,23 +1021,14 @@ private fun SettingsPage(
                 modifier = Modifier.width(360.dp),
             )
             Spacer(modifier = Modifier.size(8.dp))
-            Text(
-                text =
-                    "An artist tag containing any of these characters is split into separate " +
-                        "artists, so \"A; B\" lists under both A and B. Repeated names are " +
-                        "dropped regardless of case. Changes apply immediately and are saved.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.width(720.dp),
+            SettingsNote(
+                "An artist tag containing any of these characters is split into separate " +
+                    "artists, so \"A; B\" lists under both A and B. Repeated names are dropped " +
+                    "regardless of case. Changes apply immediately and are saved."
             )
 
             Spacer(modifier = Modifier.size(16.dp))
-            Text(
-                text = "Album date format",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Spacer(modifier = Modifier.size(8.dp))
+            SettingsLabel("Album date format")
             Row(verticalAlignment = Alignment.CenterVertically) {
                 OutlinedTextField(
                     value = Dates.resolvePattern(dateFormat),
@@ -1015,14 +1043,10 @@ private fun SettingsPage(
                 TextButton(onClick = { onDateFormat(Dates.SYSTEM) }) { Text("Use system format") }
             }
             Spacer(modifier = Modifier.size(8.dp))
-            Text(
-                text =
-                    "Tokens: YYYY (2024), YY (24), MM (05), DD (03). Anything else is kept " +
-                        "literally, so YYYYMMDD and DD.MM.YY both work. Dates come from the " +
-                        "album's date tag; a tag with only a year always shows the year.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.width(720.dp),
+            SettingsNote(
+                "Tokens: YYYY (2024), YY (24), MM (05), DD (03). Anything else is kept " +
+                    "literally, so YYYYMMDD and DD.MM.YY both work. Dates come from the " +
+                    "album's date tag; a tag with only a year always shows the year."
             )
 
             Spacer(modifier = Modifier.size(16.dp))
@@ -1040,53 +1064,15 @@ private fun SettingsPage(
                                 "the symbol.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.width(700.dp),
+                        modifier = Modifier.widthIn(max = 700.dp),
                     )
                 }
             }
 
-            Spacer(modifier = Modifier.size(16.dp))
-            HorizontalDivider()
-            Spacer(modifier = Modifier.size(16.dp))
+            SettingsDivider()
+            SettingsHeading("Storage")
 
-            Text(text = "Advanced", style = MaterialTheme.typography.titleMedium)
-            Spacer(modifier = Modifier.size(8.dp))
-            Text(
-                text = "Artist artwork seed",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Spacer(modifier = Modifier.size(8.dp))
-            OutlinedTextField(
-                value = collageSeed,
-                onValueChange = onCollageSeed,
-                singleLine = true,
-                label = { Text("Seed") },
-                modifier = Modifier.width(360.dp),
-            )
-            Spacer(modifier = Modifier.size(8.dp))
-            Text(
-                text =
-                    "Artist rows and headers show a collage of the artist's album covers, " +
-                        "shuffled with this seed and the artist's name. The same seed always " +
-                        "gives the same arrangement; change it to reshuffle every artist.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.width(720.dp),
-            )
-
-            Spacer(modifier = Modifier.size(16.dp))
-            HorizontalDivider()
-            Spacer(modifier = Modifier.size(16.dp))
-
-            Text(text = "Storage", style = MaterialTheme.typography.titleMedium)
-            Spacer(modifier = Modifier.size(8.dp))
-            Text(
-                text = "Cover cache limit",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Spacer(modifier = Modifier.size(8.dp))
+            SettingsLabel("Cover cache limit")
             Row(verticalAlignment = Alignment.CenterVertically) {
                 OutlinedTextField(
                     value = cacheLimitMb.toString(),
@@ -1106,17 +1092,90 @@ private fun SettingsPage(
                 )
             }
             Spacer(modifier = Modifier.size(8.dp))
-            Text(
-                text =
-                    "Covers pulled out of tags and folders are kept in ~/.cache/auxio so a scan " +
-                        "does not read every file again. Once the cache passes this size, the " +
-                        "least recently stored covers are deleted. Nothing is lost: a deleted " +
-                        "cover is read from its file the next time it is shown.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.width(720.dp),
+            SettingsNote(
+                "Covers pulled out of tags and folders are kept in ~/.cache/auxio so a scan " +
+                    "does not read every file again. Once the cache passes this size, the least " +
+                    "recently stored covers are deleted. Nothing is lost: a deleted cover is read " +
+                    "from its file the next time it is shown."
             )
+
+            SettingsDivider()
+            SettingsHeading("Advanced")
+
+            SettingsLabel("Artist artwork seed")
+            OutlinedTextField(
+                value = collageSeed,
+                onValueChange = onCollageSeed,
+                singleLine = true,
+                label = { Text("Seed") },
+                modifier = Modifier.width(360.dp),
+            )
+            Spacer(modifier = Modifier.size(8.dp))
+            SettingsNote(
+                "Artist rows and headers show a collage of the artist's album covers, shuffled " +
+                    "with this seed and the artist's name. The same seed always gives the same " +
+                    "arrangement; change it to reshuffle every artist."
+            )
+
+            Spacer(modifier = Modifier.size(24.dp))
         }
+    }
+}
+
+/** A settings section title; the first one skips the gap the dividers would have added. */
+@Composable
+private fun SettingsHeading(text: String, first: Boolean = false) {
+    if (!first) Spacer(modifier = Modifier.size(8.dp))
+    Text(text = text, style = MaterialTheme.typography.titleMedium)
+    Spacer(modifier = Modifier.size(8.dp))
+}
+
+@Composable
+private fun SettingsDivider() {
+    Spacer(modifier = Modifier.size(16.dp))
+    HorizontalDivider()
+    Spacer(modifier = Modifier.size(16.dp))
+}
+
+@Composable
+private fun SettingsLabel(text: String) {
+    Text(
+        text = text,
+        style = MaterialTheme.typography.bodyMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+    Spacer(modifier = Modifier.size(8.dp))
+}
+
+/** Wrapped notes so a long line does not run the whole width of a wide window. */
+@Composable
+private fun SettingsNote(text: String) {
+    Text(
+        text = text,
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.widthIn(max = 720.dp),
+    )
+}
+
+/** One sRGB channel, named, with its value beside the slider. */
+@Composable
+private fun ChannelSlider(label: String, value: Int, onChange: (Int) -> Unit) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.width(56.dp),
+        )
+        Slider(
+            value = value.toFloat(),
+            onValueChange = { onChange(it.roundToInt()) },
+            valueRange = 0f..255f,
+            modifier = Modifier.width(360.dp),
+        )
+        Spacer(modifier = Modifier.width(12.dp))
+        Text(text = value.toString(), style = MaterialTheme.typography.bodySmall)
     }
 }
 
@@ -1213,6 +1272,7 @@ private fun AlbumDetail(
     dateFormat: String,
     onBack: () -> Unit,
     onPlay: (Int) -> Unit,
+    onShuffle: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val cover = rememberArtwork(album.tracks)
@@ -1232,6 +1292,32 @@ private fun AlbumDetail(
             reserveCover = true,
             onBack = onBack,
         )
+
+        Spacer(modifier = Modifier.size(4.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Button(
+                onClick = { onPlay(0) },
+                modifier = Modifier.weight(1f),
+                contentPadding = PaddingValues(vertical = 12.dp),
+            ) {
+                Icon(imageVector = AuxioIcons.PlayArrow, contentDescription = null)
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Play")
+            }
+            OutlinedButton(
+                onClick = onShuffle,
+                modifier = Modifier.weight(1f),
+                contentPadding = PaddingValues(vertical = 12.dp),
+            ) {
+                Icon(imageVector = AuxioIcons.Shuffle, contentDescription = null)
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Shuffle")
+            }
+        }
+        Spacer(modifier = Modifier.size(12.dp))
 
         LazyColumn(modifier = Modifier.fillMaxSize()) {
             itemsIndexed(album.tracks) { index, track ->
@@ -1853,6 +1939,7 @@ private fun TrackCollectionDetail(
             onBack = onBack,
         )
 
+        Spacer(modifier = Modifier.size(4.dp))
         Row(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -1876,6 +1963,7 @@ private fun TrackCollectionDetail(
                 Text("Shuffle")
             }
         }
+        Spacer(modifier = Modifier.size(12.dp))
 
         LazyColumn(modifier = Modifier.fillMaxSize()) {
             itemsIndexed(tracks) { index, track ->

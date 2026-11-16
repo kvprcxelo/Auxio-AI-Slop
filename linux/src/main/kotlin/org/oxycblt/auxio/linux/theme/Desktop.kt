@@ -34,8 +34,8 @@ import org.oxycblt.auxio.linux.Storage
  * files. Every probe is allowed to fail; the result is only a starting colour.
  */
 object Desktop {
-    /** The accent colour the desktop reports, where it reports one. */
-    data class Appearance(val accent: Color?)
+    /** What the desktop reports about its own theme. */
+    data class Appearance(val accent: Color?, val dark: Boolean = true)
 
     /** The M3 baseline colour, so a desktop that says nothing looks like Auxio on Android. */
     val DEFAULT_ACCENT = Color(0xFF6750A4)
@@ -68,7 +68,10 @@ object Desktop {
         )
 
     fun appearance(): Appearance =
-        Appearance(accent = portalAccent() ?: settingsAccent() ?: kdeAccent() ?: gtkAccent())
+        Appearance(
+            accent = portalAccent() ?: settingsAccent() ?: kdeAccent() ?: gtkAccent(),
+            dark = portalDark() ?: settingsDark() ?: kdeDark() ?: true,
+        )
 
     /** The wallpaper the desktop is showing, if it can be found. */
     fun wallpaper(): Path? =
@@ -140,13 +143,45 @@ object Desktop {
 
     private fun portalAccent(): Color? = portal("accent-color")?.let(::parseAccentTuple)
 
+    /** The appearance portal's `color-scheme`: 1 is dark, 2 is light, 0 is no preference. */
+    internal fun parsePortalDark(output: String): Boolean? =
+        when {
+            output.contains("uint32 1") -> true
+            output.contains("uint32 2") -> false
+            else -> null
+        }
+
+    private fun portalDark(): Boolean? = portal("color-scheme")?.let(::parsePortalDark)
+
     private fun portal(key: String): String? = run(*PORTAL, key)
 
     private fun settingsAccent(): Color? =
         run("gsettings", "get", "org.gnome.desktop.interface", "accent-color")
             ?.let(::parseAccentName)
 
+    private fun settingsDark(): Boolean? =
+        run("gsettings", "get", "org.gnome.desktop.interface", "color-scheme")?.let {
+            when {
+                it.contains("prefer-dark") -> true
+                it.contains("prefer-light") || it.contains("default") -> false
+                else -> null
+            }
+        }
+
     private fun kdeAccent(): Color? = read(Storage.configPath("kdeglobals"))?.let(::parseKdeAccent)
+
+    /** KDE names its scheme, so a "Dark" in it is the closest thing to a preference. */
+    internal fun parseKdeDark(text: String): Boolean? {
+        val scheme =
+            section(text, "General").firstOrNull { it.startsWith("ColorScheme=") } ?: return null
+        return when {
+            scheme.contains("Dark", ignoreCase = true) -> true
+            scheme.contains("Light", ignoreCase = true) -> false
+            else -> null
+        }
+    }
+
+    private fun kdeDark(): Boolean? = read(Storage.configPath("kdeglobals"))?.let(::parseKdeDark)
 
     private fun gtkAccent(): Color? =
         listOf("gtk-4.0/gtk.css", "gtk-3.0/gtk.css").firstNotNullOfOrNull { file ->

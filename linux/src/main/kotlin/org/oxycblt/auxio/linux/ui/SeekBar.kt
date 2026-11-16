@@ -47,9 +47,9 @@ import androidx.compose.ui.unit.dp
  * thumb, so the thumb visibly drifted away from the wave as a track played. This is the plain
  * linear indicator, so there is one source of truth for the position and nothing to drift.
  *
- * Position arrives in 100 ms steps and is animated over the same 100 ms, so one step blends into
- * the next and the bar moves continuously; while dragging it snaps instead, because a dragged bar
- * belongs under the pointer.
+ * Position is polled every 250 ms, so the value is animated over the same 250 ms while playing:
+ * one step runs into the next instead of standing still between polls. A dragged bar snaps
+ * instead, because it belongs under the pointer.
  */
 @Composable
 internal fun SeekBar(
@@ -65,7 +65,7 @@ internal fun SeekBar(
         animateFloatAsState(
             targetValue = clamped,
             animationSpec =
-                if (dragging) snap() else tween(durationMillis = 100, easing = LinearEasing),
+                if (dragging) snap() else tween(durationMillis = 250, easing = LinearEasing),
             label = "seekBarProgress",
         )
 

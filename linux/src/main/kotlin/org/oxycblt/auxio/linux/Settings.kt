@@ -18,13 +18,16 @@
  
 package org.oxycblt.auxio.linux
 
+import androidx.compose.ui.graphics.Color
 import java.nio.file.Files
 import java.nio.file.Path
 import java.util.Properties
 import org.oxycblt.auxio.linux.music.Dates
+import org.oxycblt.auxio.linux.theme.Brightness
 import org.oxycblt.auxio.linux.theme.SchemeType
 import org.oxycblt.auxio.linux.theme.ThemeMode
 import org.oxycblt.auxio.linux.theme.ThemeSettings
+import org.oxycblt.auxio.linux.theme.toHexString
 
 /**
  * Preferences, stored as a properties file under the XDG config directory.
@@ -42,8 +45,12 @@ object Settings {
     private const val COLLAGE_SEED_KEY = "artists.collageSeed"
     private const val CACHE_LIMIT_KEY = "cache.maxSizeMb"
     private const val THEME_MODE_KEY = "theme.mode"
-    private const val THEME_HUE_KEY = "theme.hue"
-    private const val THEME_CHROMA_KEY = "theme.chroma"
+    private const val THEME_SEED_KEY = "theme.seed"
+    private const val THEME_BRIGHTNESS_KEY = "theme.brightness"
+
+    /** Written by builds that offered hue and chroma sliders, before the seed became a colour. */
+    private const val LEGACY_HUE_KEY = "theme.hue"
+    private const val LEGACY_CHROMA_KEY = "theme.chroma"
     private const val THEME_WALLPAPER_KEY = "theme.wallpaper"
     private const val THEME_TYPE_KEY = "theme.schemeType"
 
@@ -117,31 +124,45 @@ object Settings {
     }
 
     /** Where the colour scheme comes from, and the knobs the chosen source reads. */
-    fun theme(): ThemeSettings =
-        ThemeSettings(
+    fun theme(): ThemeSettings {
+        val properties = properties()
+
+        return ThemeSettings(
             mode =
-                properties().getProperty(THEME_MODE_KEY)?.let { key ->
+                properties.getProperty(THEME_MODE_KEY)?.let { key ->
                     ThemeMode.entries.firstOrNull { it.name == key }
                 } ?: ThemeMode.DESKTOP,
-            hue = properties().getProperty(THEME_HUE_KEY)?.toFloatOrNull() ?: ThemeSettings().hue,
-            chroma =
-                properties().getProperty(THEME_CHROMA_KEY)?.toFloatOrNull()
-                    ?: ThemeSettings().chroma,
-            wallpaper = properties().getProperty(THEME_WALLPAPER_KEY) ?: "",
+            brightness =
+                properties.getProperty(THEME_BRIGHTNESS_KEY)?.let { key ->
+                    Brightness.entries.firstOrNull { it.name == key }
+                } ?: Brightness.SYSTEM,
+            seed =
+                properties.getProperty(THEME_SEED_KEY)
+                    ?: legacySeed(properties)
+                    ?: ThemeSettings.DEFAULT_SEED,
+            wallpaper = properties.getProperty(THEME_WALLPAPER_KEY) ?: "",
             type =
-                properties().getProperty(THEME_TYPE_KEY)?.let { key ->
+                properties.getProperty(THEME_TYPE_KEY)?.let { key ->
                     SchemeType.entries.firstOrNull { it.name == key }
                 } ?: SchemeType.TONAL_SPOT,
         )
+    }
 
     fun theme(value: ThemeSettings) {
         put(
             THEME_MODE_KEY to value.mode.name,
-            THEME_HUE_KEY to value.hue.toString(),
-            THEME_CHROMA_KEY to value.chroma.toString(),
+            THEME_BRIGHTNESS_KEY to value.brightness.name,
+            THEME_SEED_KEY to value.seed,
             THEME_WALLPAPER_KEY to value.wallpaper,
             THEME_TYPE_KEY to value.type.name,
         )
+    }
+
+    /** Turns the old hue/chroma pair into the colour those sliders were showing. */
+    private fun legacySeed(properties: Properties): String? {
+        val hue = properties.getProperty(LEGACY_HUE_KEY)?.toFloatOrNull() ?: return null
+        val chroma = (properties.getProperty(LEGACY_CHROMA_KEY)?.toFloatOrNull() ?: 48f) / 100f
+        return Color.hsl(hue.mod(360f), chroma.coerceIn(0f, 1f), 0.5f).toHexString()
     }
 
     private fun put(key: String, value: String) = put(key to value)

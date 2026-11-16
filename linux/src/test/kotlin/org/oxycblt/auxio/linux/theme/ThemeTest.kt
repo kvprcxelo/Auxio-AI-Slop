@@ -19,6 +19,7 @@
 package org.oxycblt.auxio.linux.theme
 
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import java.nio.file.Files
 import kotlin.math.abs
 import kotlin.test.Test
@@ -28,6 +29,8 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class ThemeTest {
+    private val appearance = Desktop.Appearance(accent = Color(0xFF3F6AAB), dark = true)
+
     private val matugenDump =
         """
         {
@@ -47,59 +50,74 @@ class ThemeTest {
         }
         """
 
+    private val perRoleDump =
+        """
+        {
+          "base16": { "base00": { "dark": { "color": "#26110d" } } },
+          "colors": {
+            "background": { "dark": { "color": "#191110" }, "light": { "color": "#fff8f6" } },
+            "error": { "dark": { "color": "#ffb4ab" } },
+            "on_primary": { "dark": { "color": "#561f12" } },
+            "on_surface": { "dark": { "color": "#ecd5d0" } },
+            "outline": { "dark": { "color": "#9c8a86" } },
+            "primary": {
+              "dark": { "color": "#ffb4a4" },
+              "default": { "color": "#ffb4a4" },
+              "light": { "color": "#904b3c" }
+            },
+            "secondary": { "dark": { "color": "#e8bdb4" } },
+            "surface": { "dark": { "color": "#191110" } }
+          },
+          "mode": "dark"
+        }
+        """
+
     @Test
-    fun `reads the dark scheme out of a matugen dump`() {
-        val roles = requireNotNull(Matugen.parse(matugenDump))
+    fun `reads the dark scheme out of a nested matugen dump`() {
+        val roles = requireNotNull(Matugen.parse(matugenDump, dark = true))
 
         assertEquals("#adc6ff", roles["primary"])
         assertEquals("#e3e2e6", roles["on_surface"])
-        // The amoled, light and android blocks must not leak into the roles.
         assertEquals("#111318", roles["surface"])
         assertNull(roles["color_accent_primary"])
     }
 
     @Test
+    fun `reads the light scheme out of a nested matugen dump`() {
+        val roles = requireNotNull(Matugen.parse(matugenDump, dark = false))
+
+        assertEquals("#005ac1", roles["primary"])
+        assertEquals("#f9f9ff", roles["background"])
+    }
+
+    @Test
     fun `reads the per-role dump matugen 4 writes`() {
-        val dump =
-            """
-            {
-              "base16": { "base00": { "dark": { "color": "#26110d" } } },
-              "colors": {
-                "background": { "dark": { "color": "#191110" }, "light": { "color": "#fff8f6" } },
-                "error": { "dark": { "color": "#ffb4ab" } },
-                "on_primary": { "dark": { "color": "#561f12" } },
-                "on_surface": { "dark": { "color": "#ecd5d0" } },
-                "outline": { "dark": { "color": "#9c8a86" } },
-                "primary": {
-                  "dark": { "color": "#ffb4a4" },
-                  "default": { "color": "#ffb4a4" },
-                  "light": { "color": "#904b3c" }
-                },
-                "secondary": { "dark": { "color": "#e8bdb4" } },
-                "surface": { "dark": { "color": "#191110" } }
-              },
-              "mode": "dark"
-            }
-            """
-                .trimIndent()
+        val dark = requireNotNull(Matugen.parse(perRoleDump, dark = true))
+        val light = requireNotNull(Matugen.parse(perRoleDump, dark = false))
 
-        val roles = requireNotNull(Matugen.parse(dump))
+        assertEquals("#ffb4a4", dark["primary"])
+        assertEquals("#191110", dark["surface"])
+        assertNull(dark["base00"], "base16 is not a material role")
+        assertNull(dark["color"])
 
-        // The dark variant is read, not the light one, and the base16 palette is not a role.
-        assertEquals("#ffb4a4", roles["primary"])
-        assertEquals("#191110", roles["surface"])
-        assertEquals("#ffb4ab", roles["error"])
-        assertNull(roles["base00"])
-        assertNull(roles["color"])
+        // Only the roles that carry a light colour come back; the rest fall back in schemeOf.
+        assertEquals("#904b3c", light["primary"])
+        assertEquals("#fff8f6", light["background"])
     }
 
     @Test
     fun `maps matugen roles onto a material scheme`() {
-        val scheme = Themes.schemeOf(requireNotNull(Matugen.parse(matugenDump)))
+        val dark = Themes.schemeOf(requireNotNull(Matugen.parse(perRoleDump, true)), dark = true)
+        val light = Themes.schemeOf(requireNotNull(Matugen.parse(perRoleDump, false)), dark = false)
 
-        assertEquals(Themes.colorOf("#adc6ff"), scheme.primary)
-        assertEquals(Themes.colorOf("#002e69"), scheme.onPrimary)
-        assertEquals(Themes.colorOf("#111318"), scheme.background)
+        assertEquals(Themes.colorOf("#ffb4a4"), dark.primary)
+        assertEquals(
+            Themes.colorOf("#002e69"),
+            Themes.schemeOf(requireNotNull(Matugen.parse(matugenDump, true)), true).onPrimary,
+        )
+        assertEquals(Themes.colorOf("#904b3c"), light.primary)
+        assertTrue(light.surface.luminance() > 0.8f, "a light scheme needs a light surface")
+        assertTrue(dark.surface.luminance() < 0.2f, "a dark scheme needs a dark surface")
     }
 
     @Test
@@ -110,8 +128,14 @@ class ThemeTest {
             )
 
         assertEquals(Color(0.27058823529411763f, 0.4627450980392157f, 0.7411764705882353f), accent)
-        // gdbus prints a uint32 for the colour-scheme key, which is not an accent.
         assertNull(Desktop.parseAccentTuple("(<uint32 1>,)"))
+    }
+
+    @Test
+    fun `reads the portal's dark preference`() {
+        assertEquals(true, Desktop.parsePortalDark("(<uint32 1>,)"))
+        assertEquals(false, Desktop.parsePortalDark("(<uint32 2>,)"))
+        assertNull(Desktop.parsePortalDark("(<uint32 0>,)"))
     }
 
     @Test
@@ -127,6 +151,7 @@ class ThemeTest {
             """
                 .trimIndent()
         assertEquals(Themes.colorOf("#ff5500"), Desktop.parseKdeAccent(kdeglobals))
+        assertEquals(true, Desktop.parseKdeDark(kdeglobals))
 
         val selection =
             """
@@ -159,51 +184,70 @@ class ThemeTest {
 
     @Test
     fun `desktop mode builds the scheme around the accent`() {
-        val appearance = Desktop.Appearance(accent = Color(0xFF3F6AAB))
-        val scheme = Themes.scheme(ThemeSettings(mode = ThemeMode.DESKTOP), appearance, null)
-        val blue = scheme.primary.toHsl()
+        val scheme =
+            Themes.scheme(ThemeSettings(mode = ThemeMode.DESKTOP), appearance, null, cache())
+        val hue = scheme.primary.toHsl()[0]
 
-        // The desktop's hue survives; how saturated it ends up is the engine's business.
-        assertTrue(abs(blue[0] - 215f) < 25f, "expected a blue primary, got hue ${blue[0]}")
+        assertTrue(abs(hue - 215f) < 25f, "expected a blue primary, got hue $hue")
     }
 
     @Test
-    fun `custom mode follows its hue and chroma`() {
-        val appearance = Desktop.Appearance(accent = Color(0xFF3F6AAB))
+    fun `custom mode follows its seed colour`() {
         val red =
             Themes.scheme(
-                ThemeSettings(mode = ThemeMode.CUSTOM, hue = 5f, chroma = 80f),
+                ThemeSettings(mode = ThemeMode.CUSTOM, seed = "#e62a0d"),
                 appearance,
                 null,
+                cache(),
             )
         val green =
             Themes.scheme(
-                ThemeSettings(mode = ThemeMode.CUSTOM, hue = 130f, chroma = 80f),
+                ThemeSettings(mode = ThemeMode.CUSTOM, seed = "#1f9e3f"),
                 appearance,
                 null,
+                cache(),
             )
 
-        // Every engine nudges the hue (matugen's HCT quantises it); the direction has to hold.
         val redHue = red.primary.toHsl()[0]
         val greenHue = green.primary.toHsl()[0]
-        assertTrue(abs(redHue - 5f) < 30f, "red seed gave hue $redHue")
-        assertTrue(abs(greenHue - 130f) < 30f, "green seed gave hue $greenHue")
-        assertTrue(abs(redHue - greenHue) > 60f, "the two seeds should not meet in the middle")
+        assertTrue(redHue < 40f || redHue > 340f, "red seed gave hue $redHue")
+        assertTrue(greenHue in 90f..170f, "green seed gave hue $greenHue")
         assertNotEquals(red.primary, green.primary)
+    }
 
-        // matugen answers a chroma-less seed with its own default hue, so greyscale is a property
-        // of the built-in generator rather than of the theme mode.
-        val grey = ThemeSettings(mode = ThemeMode.CUSTOM, hue = 5f, chroma = 0f).seed
+    @Test
+    fun `parses hex seeds in the forms the field accepts`() {
+        assertEquals(Color(0xFFE62A0D), parseColor("#e62a0d"))
+        assertEquals(Color(0xFFFF0000), parseColor("#f00"))
+        assertEquals(Color(0xFF00FF00), parseColor("00ff00"))
+        assertNull(parseColor("#12"))
+        assertNull(parseColor("potato"))
+    }
+
+    @Test
+    fun `brightness decides the scheme's lightness`() {
+        val light =
+            ThemeSettings(mode = ThemeMode.CUSTOM, seed = "#3366cc", brightness = Brightness.LIGHT)
+        val dark = light.copy(brightness = Brightness.DARK)
+        val system = light.copy(brightness = Brightness.SYSTEM)
+
+        assertTrue(Themes.scheme(light, appearance, null, cache()).surface.luminance() > 0.8f)
+        assertTrue(Themes.scheme(dark, appearance, null, cache()).surface.luminance() < 0.2f)
+
+        // The desktop here reports a dark preference, so System follows it.
+        assertTrue(Themes.scheme(system, appearance, null, cache()).surface.luminance() < 0.2f)
         assertTrue(
-            Themes.Approximation.scheme(grey, SchemeType.TONAL_SPOT).primary.toHsl()[1] < 0.05f,
-            "no chroma should mean no colour",
+            Themes.scheme(system, appearance.copy(dark = false), null, cache())
+                .surface
+                .luminance() > 0.8f
         )
     }
 
     @Test
     fun `palette types change the built-in scheme`() {
         val seed = Color(0xFFD94426)
-        val schemes = SchemeType.entries.associateWith { Themes.Approximation.scheme(seed, it) }
+        val schemes =
+            SchemeType.entries.associateWith { Themes.Approximation.scheme(seed, it, true) }
         val primaries = schemes.values.map { it.primary }
 
         assertEquals(
@@ -220,7 +264,6 @@ class ThemeTest {
             "monochrome should have no chroma left",
         )
 
-        // A hue shift is what separates expressive from the spot palettes.
         val spot = schemes.getValue(SchemeType.TONAL_SPOT).primary.toHsl()[0]
         val expressive = schemes.getValue(SchemeType.EXPRESSIVE).primary.toHsl()[0]
         assertTrue(abs(expressive - spot) > 10f, "expressive hue $expressive should shift")
@@ -248,55 +291,92 @@ class ThemeTest {
 
     @Test
     fun `the first frame matches the settled scheme for desktop and custom`() {
-        val appearance = Desktop.Appearance(accent = Color(0xFF3F6AAB))
-        val cache = ThemeCache(Files.createTempDirectory("auxio-theme-first"))
+        val cache = cache()
 
         for (mode in listOf(ThemeMode.DESKTOP, ThemeMode.CUSTOM)) {
-            val settings = ThemeSettings(mode = mode, hue = 30f, chroma = 60f)
-            val settled = Themes.scheme(settings, appearance, null, cache)
-            val first = Themes.startingScheme(settings, appearance, null, cache)
+            for (brightness in listOf(Brightness.DARK, Brightness.LIGHT)) {
+                val settings = ThemeSettings(mode = mode, brightness = brightness, seed = "#cc3366")
+                val settled = Themes.scheme(settings, appearance, null, cache)
+                val first = Themes.startingScheme(settings, appearance, null, cache)
 
-            assertEquals(settled.primary, first.primary, "$mode primary")
-            assertEquals(settled.surface, first.surface, "$mode surface")
-            assertEquals(settled.onSurfaceVariant, first.onSurfaceVariant, "$mode text")
+                assertEquals(settled.primary, first.primary, "$mode/$brightness primary")
+                assertEquals(settled.surface, first.surface, "$mode/$brightness surface")
+                assertEquals(
+                    settled.onSurfaceVariant,
+                    first.onSurfaceVariant,
+                    "$mode/$brightness text",
+                )
+            }
         }
     }
 
     @Test
     fun `a cached wallpaper scheme is used for the first frame`() {
-        val cache = ThemeCache(Files.createTempDirectory("auxio-theme-wall"))
+        val cache = cache()
         val wallpaper = Files.createTempFile("auxio-wall", ".png")
         val settings = ThemeSettings(mode = ThemeMode.MATUGEN, wallpaper = wallpaper.toString())
 
         cache.store(
-            Themes.cacheKey(settings.type, wallpaper),
+            Themes.cacheKey(settings.type, wallpaper, dark = true),
             mapOf("primary" to "#123456", "surface" to "#101010"),
         )
 
         val first = Themes.startingScheme(settings, Desktop.Appearance(null), null, cache)
         assertEquals(Themes.colorOf("#123456"), first.primary)
 
-        // Another palette is a different entry, so it falls back to the accent instead.
+        // Another palette or the other brightness is a different entry, so it falls back.
         val vibrant =
+            Themes.startingScheme(settings.copy(type = SchemeType.VIBRANT), appearance, null, cache)
+        assertNotEquals(Themes.colorOf("#123456"), vibrant.primary)
+
+        val light =
             Themes.startingScheme(
-                settings.copy(type = SchemeType.VIBRANT),
-                Desktop.Appearance(accent = Color(0xFF3F6AAB)),
+                settings.copy(brightness = Brightness.LIGHT),
+                appearance,
                 null,
                 cache,
             )
-        assertNotEquals(Themes.colorOf("#123456"), vibrant.primary)
+        assertNotEquals(Themes.colorOf("#123456"), light.primary)
     }
 
     @Test
     fun `mitugen mode falls back to the desktop accent without matugen or a wallpaper`() {
-        val appearance = Desktop.Appearance(accent = Color(0xFF3F6AAB))
         val scheme =
             Themes.scheme(
                 ThemeSettings(mode = ThemeMode.MATUGEN, wallpaper = "/does/not/exist.png"),
                 appearance,
                 null,
+                cache(),
             )
 
         assertTrue(scheme.primary.toHsl()[0] in 190f..240f, "fell back to a non-blue scheme")
     }
+
+    @Test
+    fun `writes a matugen config when the user has none`() {
+        val directory = Files.createTempDirectory("auxio-matugen").resolve("matugen")
+
+        Matugen.ensureConfig(directory)
+
+        val file = directory.resolve("config.toml")
+        assertTrue(Files.isRegularFile(file), "the config was not created")
+        assertTrue(Files.readString(file).contains("[config]"))
+
+        // An existing config is left alone, since the user may have edited it.
+        Files.writeString(file, "# mine\n")
+        Matugen.ensureConfig(directory)
+        assertEquals("# mine\n", Files.readString(file))
+    }
+
+    @Test
+    fun `a grey seed stays grey in the built-in generator`() {
+        val grey = ThemeSettings(seed = "#808080").seedColor
+
+        assertTrue(
+            Themes.Approximation.scheme(grey, SchemeType.TONAL_SPOT, true).primary.toHsl()[1] <
+                0.05f
+        )
+    }
+
+    private fun cache() = ThemeCache(Files.createTempDirectory("auxio-theme-cache"))
 }

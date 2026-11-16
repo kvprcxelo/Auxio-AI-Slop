@@ -25,7 +25,7 @@ format chosen in settings, defaulting to your system's short date. A settings pa
 library rescan, the metadata separators used to split multi-artist tags, and a switch that sorts
 `*Song` or `(Song)` under its first letter instead of the symbol. Titles fall back to file names
 when a file carries no tags. The window's colour scheme follows your desktop's accent, or your
-wallpaper through matugen, or a hue you pick — see [Theming](#theming). Album artist and disc
+wallpaper through matugen, or a seed colour you pick — see [Theming](#theming). Album artist and disc
 numbers are not read yet, and playlists can be created and imported from the playlists tab but not
 yet edited track by track, with no MPRIS, search ranking or ReplayGain.
 
@@ -68,22 +68,25 @@ copies the file and makes its entries absolute, so relative paths still resolve 
 ## Theming
 
 The window is drawn in a Material 3 scheme whose source colour you choose in
-Settings → Appearance. There are three sources:
+Settings → Appearance. Brightness is System (follow the desktop), Light or Dark, and System is the
+default. There are three colour sources:
 
 - **Desktop colours** (the default) reads the accent your desktop reports: the XDG appearance
   portal's `accent-color` first, then GNOME's `gsettings`, then the KDE `kdeglobals` selection
   colour, then a GTK `accent_bg_color` from `gtk.css`. When nothing answers, Auxio's own purple is
   used.
 - **Matugen** builds the scheme from your wallpaper with [matugen](https://github.com/InioX/matugen).
-  It reads `matugen image <wallpaper> --json hex` and takes the dark scheme out of the dump, in
-  either shape matugen has used for it (4.x keys each role with a colour per mode, earlier
-  versions nest the schemes). The
-  wallpaper comes from the GNOME, KDE or hyprpaper settings unless you type a path in the field.
-  matugen is optional: without it the desktop accent is used instead, and the settings say so.
-- **Deep customization** builds the scheme from a hue and a chroma you drag, and a palette type
-  (tonal spot, content, vibrant, expressive, neutral, monochrome). The type is not decoration: with
-  matugen it picks matugen's palette, and without it the built-in generator shifts the hue and
-  scales the chroma the same way, so Vibrant is louder and Monochrome is grey either way.
+  It reads `matugen image <wallpaper> --json hex` and takes the chosen brightness' scheme out of
+  the dump, in either shape matugen has used for it (4.x keys each role with a colour per mode,
+  earlier versions nest the schemes). The wallpaper comes from the GNOME, KDE or hyprpaper
+  settings unless you type a path in the field. matugen is optional: without it the desktop accent
+  is used instead, and the settings say so. Its `config.toml` is created under
+  `~/.config/matugen` when missing, because a fresh install otherwise fails on its first run.
+- **Deep customization** builds the scheme from a seed colour you type as `#rrggbb` (or `#rgb`)
+  or set with the red, green and blue sliders, plus a palette type (tonal spot, content, vibrant,
+  expressive, neutral, monochrome). The type is not decoration: with matugen it picks matugen's
+  palette, and without it the built-in generator shifts the hue and scales the chroma the same
+  way, so Vibrant is louder and Monochrome is grey either way.
 
 With matugen installed it is the colour engine for every mode — desktop accents and custom seeds
 are passed to `matugen color hex` — so all three look like the same Material You scheme. Without
@@ -93,10 +96,12 @@ on-colour is chosen by luminance, so text stays readable whatever seed is picked
 The scheme is built before the first frame, so launching never flashes a different palette: the
 desktop and custom modes run their one colour lookup up front, and a wallpaper reuses the roles
 matugen last produced for it, kept in `$XDG_CACHE_HOME/auxio/theme-roles` and keyed by the
-wallpaper's size, modification time and palette. Editing the wallpaper or switching palette
-misses that cache, and the window draws the accent scheme for the moment matugen takes to run.
+wallpaper's size, modification time, palette and brightness. Editing the wallpaper or switching
+palette misses that cache, and the window draws the accent scheme for the moment matugen takes to
+run.
 
-The port draws a dark window; the desktop's light/dark preference is not consulted.
+Brightness follows the setting: System asks the desktop's appearance portal first, then GNOME's
+`color-scheme`, then the KDE scheme name, and falls back to dark.
 
 ## Settings
 
@@ -118,8 +123,9 @@ Older builds wrote `auxio/settings.properties`; that file is moved over on the f
   that size the least recently stored covers are deleted; a deleted cover is read from its file
   again the next time it is shown.
 - `theme.mode` — `DESKTOP` (the default), `MATUGEN` or `CUSTOM`.
-- `theme.hue` and `theme.chroma` — the seed the custom scheme is built from, in degrees and
-  percent.
+- `theme.brightness` — `SYSTEM` (the default), `LIGHT` or `DARK`.
+- `theme.seed` — the custom scheme's seed as `#rrggbb`. A build that wrote `theme.hue` and
+  `theme.chroma` is migrated to the colour those sliders were showing.
 - `theme.wallpaper` — a wallpaper path for matugen; empty means whatever the desktop reports.
 - `theme.schemeType` — the matugen palette to build, e.g. `TONAL_SPOT` or `VIBRANT`.
 
@@ -131,8 +137,8 @@ Playback problems are hard to diagnose without libmpv's output, so logging is be
 environment variable:
 
 ```sh
-AUXIO_LOG=1 ./auxio-0.1.2-x86_64.AppImage            # to the terminal
-AUXIO_LOG=~/auxio.log ./auxio-0.1.2-x86_64.AppImage  # to a file, mpv's own log included
+AUXIO_LOG=1 ./auxio-0.11.3-x86_64.AppImage            # to the terminal
+AUXIO_LOG=~/auxio.log ./auxio-0.11.3-x86_64.AppImage  # to a file, mpv's own log included
 ```
 
 With a path, the app appends its own lines (the `loadfile` command, the resolved audio output,

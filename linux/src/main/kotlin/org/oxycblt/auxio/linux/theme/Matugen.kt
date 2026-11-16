@@ -22,6 +22,7 @@ import androidx.compose.ui.graphics.Color
 import java.nio.file.Files
 import java.nio.file.Path
 import java.util.concurrent.TimeUnit
+import org.oxycblt.auxio.linux.Storage
 
 /**
  * The `matugen` command line, used as the colour engine when it is installed.
@@ -35,8 +36,19 @@ object Matugen {
     private val ROLE_BLOCK = Regex("\"([a-z_0-9]+)\"\\s*:\\s*\\{")
     private val COLOR = Regex("\"color\"\\s*:\\s*\"(#[0-9a-fA-F]{6,8})\"")
 
-    /** Fewer roles than this means the dump was not understood, not that the scheme is small. */
-    private const val MINIMUM_ROLES = 4
+    /** Written to `~/.config/matugen/config.toml` when a user has none. */
+    private val DEFAULT_CONFIG =
+        """
+        # Written by Auxio for Linux on first launch.
+        # matugen reads this file for every run; add your own templates under [templates].
+
+        [config]
+        version_check = false
+
+        [templates]
+        """
+            .trimIndent()
+            .plus("\n")
 
     /** The path to `matugen`, or null when it is not installed. */
     fun executable(): String? {
@@ -57,47 +69,68 @@ object Matugen {
 
     fun isAvailable(): Boolean = executable() != null
 
-    /** The roles of the dark scheme matugen derives from [image], or null if it could not run. */
-    fun fromImage(image: Path, type: String): Map<String, String>? {
-        if (!Files.isRegularFile(image)) return null
+    /**
+     * Writes a `config.toml` for matugen when the user does not have one yet, along with the
+     * `~/.config/matugen` directory, so a first run does not fail on a missing configuration.
+     *
+     * matugen works without one for `--json`, but every other invocation reads it, and a config
+     * that is missing is the usual reason a fresh install appears not to work at all.
+     */
+    fun ensureConfig(directory: Path = Storage.configPath("matugen")) {
+        val file = directory.resolve("config.toml")
+        if (Files.exists(file)) return
 
-        return run(listOf("image", image.toAbsolutePath().toString()), type)?.let(::parse)
+        runCatching {
+            Files.createDirectories(directory)
+            Files.writeString(file, DEFAULT_CONFIG)
+        }
     }
 
-    /** The roles of the dark scheme matugen derives from a single [seed] colour. */
-    fun fromColor(seed: Color, type: String): Map<String, String>? =
-        run(listOf("color", "hex", seed.toHex()), type)?.let(::parse)
+    /** The roles of the scheme matugen derives from [image], or null if it could not run. */
+    fun fromImage(image: Path, type: String, dark: Boolean = true): Map<String, String>? {
+        if (!Files.isRegularFile(image)) return null
 
-    private fun run(source: List<String>, type: String): String? {
+        return run(listOf("image", image.toAbsolutePath().toString()), type, dark)?.let {
+            parse(it, dark)
+        }
+    }
+
+    /** The roles of the scheme matugen derives from a single [seed] colour. */
+    fun fromColor(seed: Color, type: String, dark: Boolean = true): Map<String, String>? =
+        run(listOf("color", "hex", seed.toHex()), type, dark)?.let { parse(it, dark) }
+
+    private fun run(source: List<String>, type: String, dark: Boolean): String? {
         val executable = executable() ?: return null
         val command =
             listOf(executable) +
                 source +
                 listOf(
                     "--mode",
-                    "dark",
+                    if (dark) "dark" else "light",
                     "--type",
                     type,
                     "--json",
                     "hex",
-                    // Without an explicit index matugen asks which colour to use, on a terminal
-                    // nobody is reading.
-                    "--source-color-index",
-                    "0",
                     "--quiet",
                 )
 
-        return runCatching {
+        // Without an explicit index matugen asks which colour to use, on a terminal nobody is
+        // reading; older releases do not know the flag, so it is dropped on a failed attempt.
+        return runCommand(command + listOf("--source-color-index", "0")) ?: runCommand(command)
+    }
+
+    private fun runCommand(command: List<String>): String? =
+        runCatching {
                 val process = ProcessBuilder(command).redirectErrorStream(false).start()
                 val output = process.inputStream.bufferedReader().use { it.readText() }
                 if (!process.waitFor(TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
                     process.destroyForcibly()
-                    return null
+                    null
+                } else {
+                    output.takeIf { process.exitValue() == 0 }
                 }
-                output.takeIf { process.exitValue() == 0 }
             }
             .getOrNull()
-    }
 
     /**
      * The dark scheme out of a `--json hex` dump, keyed by snake_case role name.
@@ -107,30 +140,31 @@ object Matugen {
      * (`"colors": {"dark": {"primary": "#…"}}`). Both are read, since a user's matugen is whatever
      * their distribution packages.
      */
-    internal fun parse(json: String): Map<String, String>? {
+    internal fun parse(json: String, dark: Boolean = true): Map<String, String>? {
         val colors = objectAt(json, "colors") ?: return null
+        val mode = if (dark) "dark" else "light"
 
-        perRole(colors)
-            ?.takeIf { it.size >= MINIMUM_ROLES }
-            ?.let {
-                return it
-            }
+        // Read role by role first: a light dump may only carry the roles its author set, and
+        // schemeOf falls back for the rest, so a partial map is still worth returning.
+        perRole(colors, mode)?.let {
+            return it
+        }
 
-        return objectAt(colors, "dark")
-            ?.let { dark ->
-                ROLE.findAll(dark).associate { it.groupValues[1] to it.groupValues[2] }
+        return objectAt(colors, mode)
+            ?.let { scheme ->
+                ROLE.findAll(scheme).associate { it.groupValues[1] to it.groupValues[2] }
             }
-            ?.takeIf { it.size >= MINIMUM_ROLES }
+            ?.takeIf { it.isNotEmpty() }
     }
 
     /** The 4.x shape: a block per role, each holding `dark`/`default`/`light` colours. */
-    private fun perRole(colors: String): Map<String, String>? {
+    private fun perRole(colors: String, mode: String): Map<String, String>? {
         val roles = mutableMapOf<String, String>()
         ROLE_BLOCK.findAll(colors).forEach { match ->
             val name = match.groupValues[1]
             val block = objectAt(colors, name) ?: return@forEach
-            val dark = objectAt(block, "dark") ?: return@forEach
-            COLOR.find(dark)?.let { roles[name] = it.groupValues[1] }
+            val variant = objectAt(block, mode) ?: return@forEach
+            COLOR.find(variant)?.let { roles[name] = it.groupValues[1] }
         }
         return roles.takeIf { it.isNotEmpty() }
     }
