@@ -78,10 +78,11 @@ file that is already loaded, or already lives in the managed folder, is not impo
 **Add songs** on a playlist page appends the chosen songs' paths to that file and skips any it
 already lists, so playlists stay editable in other players. Once a playlist has songs the button
 moves to the corner; each song has an X to remove it, and dragging anywhere on its card reorders
-it, even while a sort is selected. The visible order after a drop is written back to the `.m3u`.
-Removals and deletions can be undone from the toast, and the trash button in the page header
-deletes the playlist's file. Import opens the desktop's file picker (zenity or kdialog), falling
-back to AWT when neither is installed.
+it, even while a sort is selected. The other cards slide out of the way as the drag moves, and the
+visible order after a drop is written back to the `.m3u`. Playlist rows and pages show a collage of
+the first four songs' covers. Removals and deletions can be undone from the toast, and the trash
+button in the page header deletes the playlist's file. Import opens the desktop's file picker
+(zenity or kdialog), falling back to AWT when neither is installed.
 
 ## Theming
 

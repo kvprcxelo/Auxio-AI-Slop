@@ -18,6 +18,8 @@
  
 package org.oxycblt.auxio.linux.ui
 
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -837,6 +839,7 @@ fun AuxioApp(
                                             moveTrack(playlist, tracks, from, to)
                                         },
                                         onDelete = { deletingPlaylist = playlist },
+                                        coverTracks = playlist.tracks,
                                         current = current,
                                         onBack = {
                                             openPlaylist = null
@@ -2289,7 +2292,8 @@ private fun DetailHeader(
     subtitle: String,
     onBack: () -> Unit,
     cover: ImageBitmap? = null,
-    reserveCover: Boolean = cover != null,
+    coverTracks: List<Track>? = null,
+    reserveCover: Boolean = cover != null || coverTracks != null,
     onDelete: (() -> Unit)? = null,
 ) {
     Row(
@@ -2303,7 +2307,11 @@ private fun DetailHeader(
         }
         Spacer(modifier = Modifier.width(8.dp))
         if (reserveCover) {
-            Cover(bitmap = cover, size = 72.dp)
+            if (coverTracks != null) {
+                TrackCollage(tracks = coverTracks, size = 72.dp)
+            } else {
+                Cover(bitmap = cover, size = 72.dp)
+            }
             Spacer(modifier = Modifier.width(12.dp))
         }
         Column(modifier = Modifier.weight(1f)) {
@@ -2357,6 +2365,70 @@ private fun Cover(bitmap: ImageBitmap?, size: Dp) {
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
+    }
+}
+
+/** Playlist artwork: the covers of the first four songs, arranged as a compact collage. */
+@Composable
+private fun TrackCollage(tracks: List<Track>, size: Dp) {
+    val covers = tracks.take(4).map { rememberArtwork(listOf(it)) }
+
+    Box(
+        modifier =
+            Modifier.size(size)
+                .clip(RoundedCornerShape(6.dp))
+                .background(MaterialTheme.colorScheme.surfaceVariant),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (covers.isEmpty() || covers.all { it == null }) {
+            Icon(
+                imageVector = AuxioIcons.MusicNote,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        } else {
+            when (covers.size) {
+                1 -> CollageTile(covers[0], Modifier.fillMaxSize())
+                2 ->
+                    Row(modifier = Modifier.fillMaxSize()) {
+                        CollageTile(covers[0], Modifier.weight(1f).fillMaxHeight())
+                        CollageTile(covers[1], Modifier.weight(1f).fillMaxHeight())
+                    }
+                3 ->
+                    Row(modifier = Modifier.fillMaxSize()) {
+                        CollageTile(covers[0], Modifier.weight(1f).fillMaxHeight())
+                        Column(modifier = Modifier.weight(1f).fillMaxHeight()) {
+                            CollageTile(covers[1], Modifier.weight(1f).fillMaxWidth())
+                            CollageTile(covers[2], Modifier.weight(1f).fillMaxWidth())
+                        }
+                    }
+                else ->
+                    Column(modifier = Modifier.fillMaxSize()) {
+                        Row(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                            CollageTile(covers[0], Modifier.weight(1f).fillMaxHeight())
+                            CollageTile(covers[1], Modifier.weight(1f).fillMaxHeight())
+                        }
+                        Row(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                            CollageTile(covers[2], Modifier.weight(1f).fillMaxHeight())
+                            CollageTile(covers[3], Modifier.weight(1f).fillMaxHeight())
+                        }
+                    }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CollageTile(image: ImageBitmap?, modifier: Modifier) {
+    if (image != null) {
+        Image(
+            bitmap = image,
+            contentDescription = null,
+            modifier = modifier,
+            contentScale = ContentScale.Crop,
+        )
+    } else {
+        Spacer(modifier = modifier)
     }
 }
 
@@ -2521,11 +2593,22 @@ private fun TrackRow(
     onClick: () -> Unit,
     artwork: ImageBitmap? = null,
     onRemove: (() -> Unit)? = null,
-    onMove: ((Int) -> Unit)? = null,
+    dragging: Boolean = false,
+    dragOffset: Float = 0f,
+    shift: Float = 0f,
+    onDragStart: ((Float) -> Unit)? = null,
+    onDrag: ((Float) -> Unit)? = null,
+    onDragEnd: (() -> Unit)? = null,
+    onDragCancel: (() -> Unit)? = null,
 ) {
-    var dragOffset by remember { mutableStateOf(0f) }
     var rowHeight by remember { mutableStateOf(1) }
-    var dragging by remember { mutableStateOf(false) }
+    val animatedShift by
+        animateFloatAsState(
+            targetValue = if (dragging) 0f else shift,
+            animationSpec = tween(durationMillis = 120),
+            label = "row shift",
+        )
+    val verticalOffset = if (dragging) dragOffset else animatedShift
     val cardShape = RoundedCornerShape(12.dp)
 
     Row(
@@ -2533,7 +2616,7 @@ private fun TrackRow(
             Modifier.fillMaxWidth()
                 .onSizeChanged { rowHeight = it.height }
                 .zIndex(if (dragging) 1f else 0f)
-                .offset { IntOffset(0, dragOffset.roundToInt()) }
+                .offset { IntOffset(0, verticalOffset.roundToInt()) }
                 // The whole row lifts out of the list while it is being dragged.
                 .then(if (dragging) Modifier.shadow(12.dp, cardShape).clip(cardShape) else Modifier)
                 .background(
@@ -2545,28 +2628,16 @@ private fun TrackRow(
                 )
                 .clickable(onClick = onClick)
                 .then(
-                    if (onMove != null) {
-                        Modifier.pointerInput(track.id, onMove) {
+                    if (onDragStart != null) {
+                        Modifier.pointerInput(track.id) {
                             detectVerticalDragGestures(
-                                onDragStart = {
-                                    dragging = true
-                                    dragOffset = 0f
-                                },
+                                onDragStart = { onDragStart(rowHeight.toFloat()) },
                                 onVerticalDrag = { change, amount ->
                                     change.consume()
-                                    dragOffset += amount
+                                    onDrag?.invoke(amount)
                                 },
-                                onDragEnd = {
-                                    val steps =
-                                        (dragOffset / rowHeight.coerceAtLeast(1)).roundToInt()
-                                    dragging = false
-                                    dragOffset = 0f
-                                    if (steps != 0) onMove(steps)
-                                },
-                                onDragCancel = {
-                                    dragging = false
-                                    dragOffset = 0f
-                                },
+                                onDragEnd = { onDragEnd?.invoke() },
+                                onDragCancel = { onDragCancel?.invoke() },
                             )
                         }
                     } else {
@@ -2590,7 +2661,7 @@ private fun TrackRow(
                 )
             }
         }
-        if (onMove != null) {
+        if (onDragStart != null) {
             Box(modifier = Modifier.size(48.dp), contentAlignment = Alignment.Center) {
                 Icon(
                     imageVector = AuxioIcons.DragHandle,
@@ -2787,12 +2858,20 @@ private fun PlaylistList(
 ) {
     LazyColumn(modifier = modifier) {
         items(playlists) { playlist ->
-            EntryRow(
-                title = playlist.name,
-                subtitle = count(playlist.tracks.size, "song"),
-                artwork = rememberArtwork(playlist.tracks),
-                onClick = { onOpen(playlist) },
-            )
+            Row(
+                modifier =
+                    Modifier.fillMaxWidth()
+                        .clickable { onOpen(playlist) }
+                        .padding(horizontal = 16.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                TrackCollage(tracks = playlist.tracks, size = 40.dp)
+                Spacer(modifier = Modifier.width(12.dp))
+                RowContent(
+                    title = playlist.name,
+                    subtitle = count(playlist.tracks.size, "song"),
+                )
+            }
         }
     }
 }
@@ -2807,18 +2886,46 @@ private fun TrackCollectionDetail(
     onRemove: ((Track) -> Unit)? = null,
     onMove: ((Int, Int) -> Unit)? = null,
     onDelete: (() -> Unit)? = null,
+    coverTracks: List<Track>? = null,
     current: Track?,
     onBack: () -> Unit,
     onPlay: (Int) -> Unit,
     onShuffle: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    var dragFrom by remember(tracks) { mutableStateOf<Int?>(null) }
+    var dragDistance by remember(tracks) { mutableStateOf(0f) }
+    var dragRowHeight by remember(tracks) { mutableStateOf(1f) }
+
+    val dragTo =
+        if (tracks.isEmpty()) {
+            null
+        } else {
+            dragFrom?.let { from ->
+                (from + dragDistance / dragRowHeight.coerceAtLeast(1f))
+                    .roundToInt()
+                    .coerceIn(0, tracks.lastIndex)
+            }
+        }
+
+    fun finishDrag(commit: Boolean) {
+        val from = dragFrom ?: return
+        val target =
+            (from + dragDistance / dragRowHeight.coerceAtLeast(1f))
+                .roundToInt()
+                .coerceIn(0, tracks.lastIndex)
+        dragFrom = null
+        dragDistance = 0f
+        if (commit && from != target) onMove?.invoke(from, target)
+    }
+
     Box(modifier = modifier) {
         Column(modifier = Modifier.fillMaxSize()) {
             DetailHeader(
                 title = title,
                 subtitle = subtitle,
                 cover = rememberArtwork(tracks),
+                coverTracks = coverTracks,
                 reserveCover = true,
                 onBack = onBack,
                 onDelete = onDelete,
@@ -2889,6 +2996,16 @@ private fun TrackCollectionDetail(
             } else {
                 LazyColumn(modifier = Modifier.fillMaxSize()) {
                     itemsIndexed(tracks) { index, track ->
+                        val from = dragFrom
+                        val to = dragTo
+                        val beingDragged = index == from
+                        val shift =
+                            when {
+                                from == null || to == null || beingDragged -> 0f
+                                from < to && index > from && index <= to -> -dragRowHeight
+                                from > to && index >= to && index < from -> dragRowHeight
+                                else -> 0f
+                            }
                         TrackRow(
                             track = track,
                             subtitle = listOfNotNull(track.artist, track.album).joinToString(" · "),
@@ -2896,12 +3013,20 @@ private fun TrackCollectionDetail(
                             artwork = rememberArtwork(listOf(track)),
                             onClick = { onPlay(index) },
                             onRemove = onRemove?.let { remove -> { remove(track) } },
-                            onMove =
-                                onMove?.let { move ->
-                                    { delta ->
-                                        move(index, (index + delta).coerceIn(0, tracks.lastIndex))
+                            dragging = beingDragged,
+                            dragOffset = if (beingDragged) dragDistance else 0f,
+                            shift = shift,
+                            onDragStart =
+                                onMove?.let {
+                                    { height: Float ->
+                                        dragFrom = index
+                                        dragRowHeight = height
+                                        dragDistance = 0f
                                     }
                                 },
+                            onDrag = onMove?.let { { amount: Float -> dragDistance += amount } },
+                            onDragEnd = onMove?.let { { finishDrag(true) } },
+                            onDragCancel = onMove?.let { { finishDrag(false) } },
                         )
                     }
                 }

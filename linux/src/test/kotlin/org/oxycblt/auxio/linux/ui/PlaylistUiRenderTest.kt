@@ -138,6 +138,36 @@ class PlaylistUiRenderTest {
     }
 
     @Test
+    fun `playlist rows collage the first four songs`() {
+        val songs = tracks()
+        val tone = Path.of(javaClass.getResource("/tone.wav")?.toURI() ?: error("tone missing"))
+        val directory = Files.createTempDirectory("auxio-playlist-collage")
+        val bare =
+            List(3) { index ->
+                Track(Files.copy(tone, directory.resolve("bare$index.wav")), "Bare $index")
+            }
+        val playlist =
+            Playlist(
+                "Collage",
+                listOf(songs.first(), bare[0], bare[1], bare[2]),
+                Path.of("Collage.m3u"),
+            )
+
+        val path = render(listOf(playlist), "playlist-collage", playlistTab = true, fabY = null)
+        val image = javax.imageio.ImageIO.read(path.toFile())
+        val withArt = java.awt.Color(image.getRGB(25, 160))
+        val withoutArt = java.awt.Color(image.getRGB(45, 160))
+        assertTrue(
+            withArt.red > 150,
+            "the first song's cover was not in the collage (${withArt.red})",
+        )
+        assertTrue(
+            withoutArt.red < 100,
+            "the collage filled a slot that has no cover (${withoutArt.red})",
+        )
+    }
+
+    @Test
     fun `renders the playlist actions menu`() {
         val songs = tracks()
         assertTrue(
@@ -455,13 +485,12 @@ class PlaylistUiRenderTest {
                 fun settle(frames: Int = 6) {
                     repeat(frames) {
                         Thread.sleep(50)
-                        scene.render()
+                        scene.render(System.nanoTime())
                     }
                 }
 
                 fun shot(name: String) {
-                    scene.render()
-                    val image = scene.render()
+                    val image = scene.render(System.nanoTime())
                     val encoded = requireNotNull(image.encodeToData(EncodedImageFormat.PNG))
                     Files.write(output.resolveSibling("$name.png"), encoded.bytes)
                 }
@@ -492,6 +521,11 @@ class PlaylistUiRenderTest {
                         buttons = PointerButtons(isPrimaryPressed = true),
                     )
                     scene.render()
+                }
+                // Let the other cards finish sliding into the gap before the shot.
+                repeat(4) {
+                    Thread.sleep(50)
+                    scene.render(System.nanoTime())
                 }
                 shot("playlist-sorted-dragging")
                 scene.sendPointerEvent(PointerEventType.Release, Offset(500f, 395f))
