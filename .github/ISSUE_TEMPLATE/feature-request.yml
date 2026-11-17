@@ -1,53 +1,53 @@
 name: Feature Request
-description: Propose new functionality
+description: Propose new functionality for the Linux desktop player
 labels: ["enhancement"]
 body:
   - type: markdown
     attributes:
       value: |
-        Welcome to the Auxio-AI-Slop feature request form.
-        Please note that not every request can be implemented; features that fit the scope of the project are more likely to be accepted.
+        Welcome to the Auxio-AI-Slop feature request form. This repository releases the Linux
+        desktop player; features that fit the scope of the port are most likely to be accepted.
+
+        Check that the feature is not already implemented in the latest release or already
+        requested before filing.
   - type: textarea
     id: desc
     attributes:
-      label: Description 
-      description: Provide a clear and concise description of the feature to implement.
-      placeholder: I want...
+      label: Description
+      description: Provide a clear and concise description of the feature.
+      placeholder: I want ...
     validations:
       required: true
   - type: textarea
     id: problem
     attributes:
       label: Problem solved
-      description: Is your feature request related to a problem? Please describe.
-      placeholder: I'm always frustrated when...
+      description: Is this related to a problem? Describe what is frustrating or missing.
+      placeholder: I'm always frustrated when ...
   - type: textarea
     id: others
     attributes:
       label: Other implementations
-      description: How do other music players handle this? Please describe.
-      placeholder: This music player does...
+      description: How do other music players or desktop apps handle this?
+      placeholder: This player does ...
     validations:
-      required: true 
+      required: true
   - type: textarea
     id: why
     attributes:
       label: Benefit
-      description: >
-        How will this addition benefit **everyone's** usage of the app? A convincing argument increases the likelihood
-        that this feature is accepted.
-      placeholder: This feature allows...
+      description: How will this benefit everyone's use of the app? A convincing case makes the feature more likely to be accepted.
+      placeholder: This feature allows ...
     validations:
-      required: true 
+      required: true
   - type: checkboxes
     id: terms
     attributes:
-      label: Duplicates
-      description: By submitting this issue, you aknowledge the following
+      label: Before submitting
       options:
-        - label: I have checked this feature request for duplicates.
+        - label: I have searched existing feature requests for duplicates.
           required: true
-        - label: I have checked that this feature is not implemented in the [latest build](https://github.com/kvprcxelo/Auxio-AI-Slop/releases).
+        - label: I have checked that this feature is not implemented in the latest release.
           required: true
         - label: I agree to the [Contribution Guidelines](https://github.com/kvprcxelo/Auxio-AI-Slop/blob/dev/.github/CONTRIBUTING.md).
-          required: true          
+          required: true

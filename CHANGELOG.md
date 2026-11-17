@@ -1,3 +1,13 @@
+# Changelog
+
+This repository is a Linux desktop port of Auxio. Linux release notes are published on the
+[GitHub Releases page](https://github.com/kvprcxelo/Auxio-AI-Slop/releases).
+
+The history below is inherited from upstream Auxio's Android app (through v4.1.5). It is kept for
+attribution and does not describe changes to the Linux build.
+
+## Upstream Android history
+
 ## v4.1.5
 
 ## What's Fixed

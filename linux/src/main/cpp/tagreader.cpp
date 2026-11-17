@@ -15,7 +15,7 @@
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-
+ 
 #include <jni.h>
 #include <string>
 #include <vector>
@@ -79,18 +79,20 @@ TagLib::ByteVector embeddedPicture(TagLib::File *file) {
         return {};
     }
 
-    if (auto *mpeg = dynamic_cast<TagLib::MPEG::File *>(file)) {
+    if (auto *mpeg = dynamic_cast<TagLib::MPEG::File*>(file)) {
         TagLib::ID3v2::Tag *tag = mpeg->ID3v2Tag();
         if (tag == nullptr) {
             return {};
         }
         TagLib::ByteVector fallback;
         for (auto *frame : tag->frameList("APIC")) {
-            auto *picture = dynamic_cast<TagLib::ID3v2::AttachedPictureFrame *>(frame);
+            auto *picture =
+                    dynamic_cast<TagLib::ID3v2::AttachedPictureFrame*>(frame);
             if (picture == nullptr) {
                 continue;
             }
-            if (picture->type() == TagLib::ID3v2::AttachedPictureFrame::FrontCover) {
+            if (picture->type()
+                    == TagLib::ID3v2::AttachedPictureFrame::FrontCover) {
                 return picture->picture();
             }
             if (fallback.isEmpty()) {
@@ -100,7 +102,7 @@ TagLib::ByteVector embeddedPicture(TagLib::File *file) {
         return fallback;
     }
 
-    if (auto *flac = dynamic_cast<TagLib::FLAC::File *>(file)) {
+    if (auto *flac = dynamic_cast<TagLib::FLAC::File*>(file)) {
         TagLib::ByteVector fallback;
         for (const auto *picture : flac->pictureList()) {
             if (picture->type() == TagLib::FLAC::Picture::FrontCover) {
@@ -113,15 +115,15 @@ TagLib::ByteVector embeddedPicture(TagLib::File *file) {
         return fallback;
     }
 
-    if (auto *opus = dynamic_cast<TagLib::Ogg::Opus::File *>(file)) {
+    if (auto *opus = dynamic_cast<TagLib::Ogg::Opus::File*>(file)) {
         return xiphPicture(opus->tag());
     }
 
-    if (auto *vorbis = dynamic_cast<TagLib::Ogg::Vorbis::File *>(file)) {
+    if (auto *vorbis = dynamic_cast<TagLib::Ogg::Vorbis::File*>(file)) {
         return xiphPicture(vorbis->tag());
     }
 
-    if (auto *mp4 = dynamic_cast<TagLib::MP4::File *>(file)) {
+    if (auto *mp4 = dynamic_cast<TagLib::MP4::File*>(file)) {
         TagLib::MP4::Tag *tag = mp4->tag();
         if (tag == nullptr) {
             return {};

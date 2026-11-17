@@ -1,87 +1,88 @@
 name: Bug/Crash Report
-description: Report a problem
+description: Report a problem with the Linux desktop player
 labels: ["bug"]
 body:
   - type: markdown
     attributes:
       value: |
-        Welcome to the Auxio-AI-Slop bug report form.
-        Please note that not every reported issue can be fixed. Well-written bug reports are more likely to be resolved.
+        Welcome to the Auxio-AI-Slop bug report form. This repository releases the Linux desktop
+        player; the Android app is inherited from upstream and is not the release target.
+
+        Well-written reports are much easier to fix. Search existing issues first, and check the
+        problem on the latest release before filing.
   - type: textarea
     id: desc
     attributes:
-      label: Describe the bug/crash
-      description: Provide a clear and concise description of the issue alongside steps to reproduce it.
+      label: Describe the bug or crash
+      description: Provide a clear description of the issue and the exact steps to reproduce it.
       placeholder: |
-        1. Go to X
-        2. Click on Y
-        3. Scroll down to Z
+        1. Open ...
+        2. Click ...
+        3. Scroll to ...
         4. See error
     validations:
       required: true
   - type: textarea
     id: intended
     attributes:
-      label: Describe the intended behavior
-      description: Provide a clear and concise descripton of the correct behavior. Include examples from other music players if applicable.
-      placeholder: Should do X.
+      label: What did you expect to happen?
+      description: Describe the correct behavior. Examples from other music players are welcome.
+      placeholder: It should ...
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: The release tag, AppImage filename, or commit you tested.
+      placeholder: v0.12.5 / auxio-0.12.5-x86_64.AppImage / commit abc1234
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Linux environment
+      description: Distribution and version, desktop environment, session type (Wayland or X11), and libmpv version if known.
+      placeholder: Ubuntu 24.04, GNOME 46, Wayland, libmpv2 0.40.0
     validations:
       required: true
   - type: dropdown
-    id: android-version
+    id: install-method
     attributes:
-      label: What Android version do you use?
+      label: How are you running Auxio?
       options:
-        - Android 17
-        - Android 16
-        - Android 15
-        - Android 14
-        - Android 13
-        - Android 12L
-        - Android 12
-        - Android 11
-        - Android 10
-        - Android 9 (Pie)
-        - Android 8.1 (Oreo)
-        - Android 8 (Oreo)
-        - Android 7 (Nougat)
-        - Android 6 (Marshmallow)
-        - Android 5.1 (Lollipop)
-        - Android 5 (Lollipop)
-    validations:
-      required: true
-  - type: textarea
-    id: devide-model
-    attributes:
-      label: What device model do you use?
-      description: Include details on OEM Skin or Custom ROM if possible.
-      placeholder: OnePlus 7T (LineageOS)
-    validations:
-      required: true
-  - type: textarea
-    id: sample-file
-    attributes:
-      label: Provide a sample file
-      description: Upload a sample file the error is related to the loading or playback of music files. **IF YOU DO NOT DO THIS, I WILL BE UNABLE TO SOLVE YOUR ISSUE.** Music loading errors may indicate what file is causing the issue. Upload that file. If the audio is copyrighted, you should cut it out in an audio error while still making sure the edited file reproduces the issue. *Upload a ZIP file containing the files or share a link to a file hosted on the cloud.*
+        - Downloaded AppImage
+        - Built from source and ran the Gradle build
+        - Ran a distributable from `createDistributable`
+        - Other
     validations:
       required: true
   - type: textarea
     id: logs
     attributes:
-      label: Bug report
+      label: Logs
       description: |
-        If possible, provide a "bug report" ZIP file to make it easier to identify the issue. Go to [here](https://developer.android.com/studio/debug/bug-report) for guidance on how to take one.
+        Attach the app and mpv logs if possible. Run the AppImage with `AUXIO_LOG=~/auxio.log`
+        and attach `auxio.log` and `auxio.log.mpv`. If the app does not start, paste the terminal
+        output here.
+      render: shell
     validations:
-      required: true
+      required: false
+  - type: textarea
+    id: sample-file
+    attributes:
+      label: Sample file
+      description: Only if the problem is specific to loading or playing a file. Upload the smallest file that reproduces it, or a link. Do not upload copyrighted music you cannot share.
+    validations:
+      required: false
   - type: checkboxes
     id: terms
     attributes:
-      label: Duplicates
-      description: By submitting this issue, you aknowledge the following
+      label: Before submitting
       options:
-        - label: I have checked this issue for duplicates.
+        - label: I have searched existing issues and pull requests for duplicates.
           required: true
-        - label: I have checked that this issue occurs on the [latest build](https://github.com/kvprcxelo/Auxio-AI-Slop/releases).
+        - label: I have checked that this issue still occurs on the latest release.
           required: true
         - label: I agree to the [Contribution Guidelines](https://github.com/kvprcxelo/Auxio-AI-Slop/blob/dev/.github/CONTRIBUTING.md).
-          required: true          
+          required: true
